@@ -1,4 +1,4 @@
-# Pwerp
+# Perp
 Parsl execution reports and plots
 
 Command line tools for analyzing the Parsl monitoring.db and producing a variety of summary 
