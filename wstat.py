@@ -82,6 +82,7 @@ class pmon:
         ## Trivial function to strip off millisec from Parsl time string
         if intime == None: return None
         return datetime.datetime.strptime(str(intime),'%Y-%m-%d %H:%M:%S.%f').strftime('%Y-%m-%d %H:%M:%S')
+    
     def makedt(self,intime):
         ## Trivial function to return a python datetime object from Parsl time string
         return datetime.datetime.strptime(str(intime),'%Y-%m-%d %H:%M:%S.%f')
@@ -165,7 +166,7 @@ class pmon:
     ####################
     ## Parsl monitoring analysis functions
     ####################
-    def readWorkflowTable(self,sql="select * from workflow"):
+    def readWorkflowTable(self,sql="select * from workflow order by time_began asc"):
         ## Extract all rows from 'workflow' table in monitoring.db
         ##  called from constructor to initialize workflow data in self.wrows
         #
@@ -656,6 +657,13 @@ class pmon:
         ## (NOTE: as of 4/20/2020 this function is mostly obsolete,
         ## use deepTaskSummary() instead)
         ##############################################################
+        return
+        ##############################################################
+        ##############################################################
+
+
+
+
         
         ## The task summary is a composite presentation of values from
         ## the 'task' and 'status' tables
@@ -797,24 +805,51 @@ class pmon:
 
     def workflowHistory(self):
         ## This is the workflowHistory: details for each workflow 'run'
-        sql = 'select workflow_name,user,host,time_began,time_completed,workflow_duration,tasks_completed_count,tasks_failed_count,rundir from workflow'
+        sql = 'select workflow_name,user,host,time_began,time_completed,tasks_completed_count,tasks_failed_count,rundir from workflow order by time_began asc'
         (wrows,wtitles) = self.stdQuery(sql)
-        ## Modify the result set
+        if self.debug > 1:
+            print('wtitles = ',wtitles)
+            print('Number of runs = len(wrows) = ',len(wrows))
+            for wrow in wrows :
+                print(list(wrow))
+                pass
+            pass
+        
+        ## Adjust the result set for printing
         for i in list(range(len(wtitles))):
             if wtitles[i] == 'tasks_completed_count':wtitles[i] = '#tasks_good'
             if wtitles[i] == 'tasks_failed_count':wtitles[i] = '#tasks_bad'
             pass
         rows = []
         wtitles.insert(0,"RunNum")
+        wtitles.insert(6,"RunDuration")
         for wrow in wrows:
+            run_duration = self.timeDiff(wrow['time_began'],wrow['time_completed'])
             row = list(wrow)
-            if row[4] is None: row[4] = '-> running or killed <-'
+            row.insert(5,run_duration)
+            row[3] = self.stripms(row[3])
+            row[4] = self.stripms(row[4])
+            if run_duration is None: row[4] = '-> running or killed <-'
             row.insert(0,os.path.basename(row[8]))
             rows.append(row)
         ## Print the report
         print(tabulate(rows,headers=wtitles, tablefmt=tblfmt))
         return
 
+
+    def runNums(self):
+        ## Simply print a table of the serial run number vs Parsl (lengthy) run_id
+        print("Sequential (time-ordered) Run Numbers vs their corresponding Parsl run_id's")
+        rlist = self.runid2num.keys()
+        rtable=[]
+        for run in rlist:
+            if self.debug > 0: print(self.runid2num[run],run)
+            rtable.append([self.runid2num[run],run])
+            pass
+        #print(self.runnum2id)
+        #print(self.runid2num)
+        print(tabulate(rtable,headers=["RunNum","parsl run_id"],tablefmt=tblfmt))
+        return
 
 #############################################################################
 #############################################################################
@@ -828,7 +863,7 @@ class pmon:
 if __name__ == '__main__':
 
 
-    reportTypes = ['fullSummary','shortSummary','runHistory','newSummary','plot']
+    reportTypes = ['fullSummary','shortSummary','runHistory','newSummary','plot','runNums']
 
     ## Parse command line arguments
     parser = argparse.ArgumentParser(description='A simple Parsl status reporter.  Available reports include:'+str(reportTypes))
@@ -883,6 +918,8 @@ if __name__ == '__main__':
         m.newSummary(runnum=args.runnum,dig=args.taskXdata,printSummary=True)
     elif args.reportType == 'plot':
         m.plot()
+    elif args.reportType == 'runNums':
+        m.runNums()
     else:
         print("%ERROR: Unrecognized reportType: ",args.reportType)
         print("Must be one of: ",reportTypes)
