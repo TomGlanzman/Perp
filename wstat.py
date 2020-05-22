@@ -284,21 +284,20 @@ class pmon:
     def getTaskStatus(self,runID,taskID):
         ## Return the most recent status (task_status_name) for specified run and task
         if self.debug > 0 : print("Entering getTaskStatus(runID=",runID,",taskID=",taskID,")")
-        ## Find the *status* for each task in this initial set
-        ##   Obtain most recent status for the specified run and task
+        ##
         sql = 'select task_id,timestamp,task_status_name from status where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" order by timestamp desc limit 1'
         (sRowz,sTitles) = self.stdQuery(sql)
         if self.debug > 1: self.dumpTable(sTitles,sRowz)
         taskStat = sRowz[0]['task_status_name'] 
         if taskStat not in self.statList:
-            print("%ERROR: new task status encountered: ",taskStat)
+            print("%WARNING: new task status encountered: ",taskStat)
             pass
         if self.debug > 0 : print("Returning task status = ",taskStat)
         return taskStat
 
 
     def getTaskRunData(self,runID,taskID,hashsum):
-        return
+        #return
         ##############NEEDS WORK: task table no longer contains hostname or times###################
         ## Dig into the status and task tables for the actual entry that contains run information
         ## This fn needs calling only for tasks with status "memo_done"
@@ -306,15 +305,23 @@ class pmon:
         if self.debug > 0: print("Entering getTaskRunData(runID=",runID,",taskID=",taskID,",hashsum=",hashsum)
         #
         # Query task table for all tasks with taskID and hashsum
-        sql = 'select run_id,task_id,task_func_name,hostname,task_fail_count,task_time_submitted,task_time_running,task_time_returned,task_elapsed_time,task_stdout,task_hashsum from task where task_id="'+str(taskID)+'" and task_hashsum="'+str(hashsum)+'" order by run_id asc'
+        ##OBSOLETE 5/2020  sql = 'select run_id,task_id,task_func_name,hostname,task_fail_count,task_time_submitted,task_time_running,task_time_returned,task_elapsed_time,task_stdout,task_hashsum from task where task_id="'+str(taskID)+'" and task_hashsum="'+str(hashsum)+'" order by run_id asc'
+        
+        sql = 'select run_id,task_id,task_func_name,task_fail_count,task_time_returned,task_stdout,task_hashsum from task where task_hashsum="'+str(hashsum)+'" order by run_id desc'
         (tRowz,tTitles) = self.stdQuery(sql)
         if self.debug > 1: self.dumpTable(tTitles,tRowz)
+
 
         # Query status table for candidate runs
         sql = 'select run_id,task_id,timestamp,task_status_name from status where task_status_name="exec_done" and task_id="'+str(taskID)+'" order by timestamp desc'
         (sRowz,sTitles) = self.stdQuery(sql)
         if self.debug > 4: self.dumpTable(sTitles,sRowz)
 
+
+        sys.exit(99)
+
+
+        
         if len(sRowz) > 1:
             print("Trouble in getTaskRunData: multiple exec_done entries for this run/task")
             sys.exit(4)
@@ -324,6 +331,15 @@ class pmon:
             if tRow['run_id'] == sRowz[0]['run_id']:
                 if self.debug > 1: print("We have a match! run_id = ",tRow['run_id'])
                 if self.debug > 0 : print("Returning")
+
+
+                ## Obtain additional task information from 'try' table
+                sql = 'select hostname,task_time_submitted,task_time_running,task_try_time_returned from try where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" order by try_id asc'
+                (yRowz,yTitles) = self.stdQuery(sql)
+                yrow = yRowz[-1]   # select most recent try, i.e., largest try_id
+
+
+                
                 return (tRow['run_id'],tRow['hostname'],tRow['task_time_submitted'],tRow['task_time_running'],tRow['task_time_returned'],sRowz[0]['task_status_name'])
             pass
         if self.debug > 0 : print("Returning")
@@ -332,6 +348,7 @@ class pmon:
         
 
     def deepTaskSummary(self,runnum=None,opt=None,dig=True,printSummary=True):
+        if self.debug > 0 : print("Entering deepTaskSummary(runnum=",runnum,", opt=",opt,", dig=",dig,", printSummary=",printSummary,")")
         ##############NEEDS WORK: task table no longer contains hostname or times###################
         
         ## The task summary is a composite collection of values from
@@ -410,8 +427,13 @@ class pmon:
 
             ## If task was executed in a previous run, fetch runtime data
             if taskStat == "memo_done" and dig:
-                if self.debug > 1: print("Dig deeper...")
+                if self.debug > 1:
+                    print("Dig deeper...")
+                    print('runID=',runID,', task_id=',row['task_id'],', task_hashsum=',row['task_hashsum'])
+                    pass
+                
                 (xRunID,xHost,xSubmitTime,xStartTime,xEndTime,xStatus) = self.getTaskRunData(runID,row['task_id'],row['task_hashsum'])
+
                 pTask[self.pTitles['run_num']]    = int(self.runid2num[xRunID])
                 #pTask[self.pTitles['status']]     = xStatus
                 pTask[self.pTitles['hostname']]   = xHost
