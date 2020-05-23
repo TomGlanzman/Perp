@@ -7,7 +7,7 @@
 ## Python dependencies: sqlite3, tabulate
 
 ## T.Glanzman - Spring 2019
-__version__ = "0.10.0 alpha"
+__version__ = "1.0.0 beta"
 pVersion='0.9.0:lsst-dm-202005'    ## Parsl version
 
 import sys,os
@@ -54,8 +54,8 @@ class pmon:
         self.readWorkflowTable()
 
         ## pTasks contains selected task information filled by deepTaskSummary()
-        self.pTitles = {'task_id':0,'task_name':1,'run_num':2,'status':3,'hostname':4,
-                   '#fails':5,'submitTime':6,'startTime':7,'endTime':8,'runTime':9,'stdout':10}
+        self.pTitles = {'task_id':0,'task_name':1,'run_num':2,'status':3,'hostname':4,'try':5,
+                        '#fails':6,'submitTime':7,'startTime':8,'endTime':9,'runTime':10,'stdout':11}
         self.pTasks = []
         self.pTasksFilled = False
         self.taskLimit=0   # Set to non-zero to limit tasks processed for pTasks
@@ -111,9 +111,14 @@ class pmon:
     def getTableSchema(self,table='all'):
         ## Fetch the schema for one or more db tables
         if table == 'all':
-            sql = "select sql from sqlite_master where type = 'table' ;"
+            sql = ("select sql "
+                   "from sqlite_master "
+                   "where type = 'table' ;")
         else:
-            sql = "select sql from sqlite_master where type = 'table' and name = '"+table+"';"
+            sql = ("select sql "
+                   "from sqlite_master "
+                   "where type = 'table' and name = '"+table+"';")
+            pass
         self.cur.execute(sql)
         schemas = self.cur.fetchall()
         return schemas
@@ -134,10 +139,11 @@ class pmon:
         print("\ndumpTable:\n==========")
         print("titles = ",titles)
         print("Table contains ",len(rowz)," rows")
-        for row in rowz:
-            for key in row.keys():
-                print(row[key])
-            pass
+        # for row in rowz:
+        #     for key in row.keys():
+        #         print(row[key])
+        #     pass
+        print(tabulate(rowz,headers=titles,tablefmt=tblfmt))
         print("-------------end of dump--------------")
         return
     
@@ -283,10 +289,14 @@ class pmon:
 
 
     def getTaskStatus(self,runID,taskID):
+        ################## OBSOLETE #################
         ## Return the most recent status (task_status_name) for specified run and task
         if self.debug > 0 : print("Entering getTaskStatus(runID=",runID,",taskID=",taskID,")")
         ##
-        sql = 'select task_id,timestamp,task_status_name from status where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" order by timestamp desc limit 1'
+        sql = ('select task_id,timestamp,task_status_name '
+               'from status '
+               'where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" '
+               'order by timestamp desc limit 1')
         (sRowz,sTitles) = self.stdQuery(sql)
         if self.debug > 1: self.dumpTable(sTitles,sRowz)
         taskStat = sRowz[0]['task_status_name'] 
@@ -297,75 +307,15 @@ class pmon:
         return taskStat
 
 
-    def getTaskRunData(self,runID,taskID,hashsum):
-        #return
-        ##############NEEDS WORK: task table no longer contains hostname or times###################
-        ## Dig into the status and task tables for the actual entry that contains run information
-        ## This fn needs calling only for tasks with status "memo_done"
-        ## Signature: (xRunID,xHost,xSubmitTime,xStartTime,xEndTime,xStatus) = self.getTaskRunData(runID,taskID,hashsum)
-        if self.debug > 0: print("Entering getTaskRunData(runID=",runID,",taskID=",taskID,",hashsum=",hashsum)
-        #
-        # Query task table for all tasks with taskID and hashsum
-        ##OBSOLETE 5/2020  sql = 'select run_id,task_id,task_func_name,hostname,task_fail_count,task_time_submitted,task_time_running,task_time_returned,task_elapsed_time,task_stdout,task_hashsum from task where task_id="'+str(taskID)+'" and task_hashsum="'+str(hashsum)+'" order by run_id asc'
-        
-        sql = 'select run_id,task_id,task_func_name,task_fail_count,task_time_returned,task_stdout,task_hashsum from task where task_hashsum="'+str(hashsum)+'" order by run_id desc'
-        (tRowz,tTitles) = self.stdQuery(sql)
-        if self.debug > 1: self.dumpTable(tTitles,tRowz)
-
-
-        # Query status table for candidate runs
-        sql = 'select run_id,task_id,timestamp,task_status_name from status where task_status_name="exec_done" and task_id="'+str(taskID)+'" order by timestamp desc'
-        (sRowz,sTitles) = self.stdQuery(sql)
-        if self.debug > 4: self.dumpTable(sTitles,sRowz)
-
-
-        sys.exit(99)
-
-
-        
-        if len(sRowz) > 1:
-            print("Trouble in getTaskRunData: multiple exec_done entries for this run/task")
-            sys.exit(4)
-            pass
-        
-        for tRow in tRowz:
-            if tRow['run_id'] == sRowz[0]['run_id']:
-                if self.debug > 1: print("We have a match! run_id = ",tRow['run_id'])
-                if self.debug > 0 : print("Returning")
-
-
-                ## Obtain additional task information from 'try' table
-                sql = 'select hostname,task_time_submitted,task_time_running,task_try_time_returned from try where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" order by try_id asc'
-                (yRowz,yTitles) = self.stdQuery(sql)
-                yrow = yRowz[-1]   # select most recent try, i.e., largest try_id
-
-
-                
-                return (tRow['run_id'],tRow['hostname'],tRow['task_time_submitted'],tRow['task_time_running'],tRow['task_time_returned'],sRowz[0]['task_status_name'])
-            pass
-        if self.debug > 0 : print("Returning")
-        return (None,None,None,None,None,None)
 
         
 
     def deepTaskSummary(self,runnum=None,opt=None,dig=True,printSummary=True):
+        ## The main purpose of this function is to fill the pTask and nodeUsage data structures
+        ##   dig=True to obtain task times from the run in which it successfully executed
+        ##   printSummary=True to print (a potentially lengthy) task summary table
+        
         if self.debug > 0 : print("Entering deepTaskSummary(runnum=",runnum,", opt=",opt,", dig=",dig,", printSummary=",printSummary,")")
-        ##############NEEDS WORK: task table no longer contains hostname or times###################
-        
-        ## The task summary is a composite collection of values from
-        ## the 'task' and 'status' tables
-
-        ## TO-DO: the "runnum" parameter is not properly being used
-        
-        ## deepTaskSummary() differs from printTaskSummary in that
-        ## individual tasks are tracked, as necessary (and if
-        ## requested), to the run in which they successfully ran.
-        ## Also, printing the taskSummary is optional but the data is
-        ## preserved for plotting
-
-        ## deepTaskSummary() is responsible for filling:
-        ##   self.pTasks[] list with selected task info
-        ##   self.nodeUsage{} with node usage statistics
         
         ##  Select requested initial Run in workflow table
         rowindex = self.selectRunID(runnum)
@@ -373,51 +323,49 @@ class pmon:
         if runnum == None: runnum = int(self.runid2num[wrow['run_id']])  # most recent run
         if self.debug > 0: print('--> run_id = ',wrow['run_id'])
 
-        ##  Query the 'task' table for initial workflow run
-        runID = wrow['run_id']
-        #####obsolete 5/13/2020#####        sql = 'select task_id,task_func_name,hostname,task_fail_count,task_time_submitted,task_time_running,task_time_returned,task_elapsed_time,task_stdout,task_hashsum from task where run_id = "'+wrow['run_id']+'" order by task_id asc'
-        sql = 'select task_id,task_func_name,task_fail_count,task_time_returned,task_stdout,task_hashsum from task where run_id = "'+wrow['run_id']+'" order by task_id asc'
+        ## Query DB for task summary of the *CURRENT STATE*, and
+        ## includes data from current and previous runs to get
+        ## execution statistics, as necessary
+        sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
+               'max(s.timestamp),s.task_status_name,'
+               'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
+               'from task t '
+               'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
+               'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
+               'where s.task_status_name!="memo_done" '
+               'group by t.task_id '
+               'order by t.task_id asc')
 
-
-        ### POSSIBLE QUERY FOR FUTURE GET_TASK_INFO(self,run_id,task_id)
-        ###   returns (try,hostname,task_time_submitted,task_time_running
-#        sql = 'select try_id,hostname,task_time_submitted,task_time_running where run_id='+runID+' and task_id='+taskID+' order by try_id asc'
-        ###############################################
-        
         (tRowz,tTitles) = self.stdQuery(sql)
-        if self.debug > 1: print('tTitles = ',tTitles)
+        if self.debug > 1:
+            self.dumpTable(tTitles,tRowz)
+            pass
 
-        ##  Prepare master list of tasks (order is important: must match self.pTitles, above)
-        ##   and keep an eye out for tasks completed in previous run
+        
         rCount = 0
         nRunning = 0
+        ## Look at every task...
         for row in tRowz:
-            ## Default task summary (with a few dummies to be filled in later)
             rCount += 1
 
-            ## Obtain additional task information from 'try' table
-            sql = 'select hostname,task_time_submitted,task_time_running,task_try_time_returned from try where run_id="'+str(wrow['run_id'])+'" and task_id="'+str(row['task_id'])+'" order by try_id asc'
-            (yRowz,yTitles) = self.stdQuery(sql)
-            yrow = yRowz[-1]   # select most recent try, i.e., largest try_id
-            
+            ## Fill Task data list
             pTask = [row['task_id'],
                      row['task_func_name'],
-                     runnum,
-                     'dummy',
-                     yrow['hostname'],
+                     self.runid2num[row['run_id']],
+                     row['task_status_name'],
+                     row['hostname'],
+                     row['try_id'],
                      row['task_fail_count'],
-                     self.stripms(yrow['task_time_submitted']),
-                     self.stripms(yrow['task_time_running']),
-                     self.stripms(yrow['task_try_time_returned']),
-                     self.timeDiff(yrow['task_time_running'],yrow['task_try_time_returned']),
-                     os.path.splitext(row['task_stdout'])[0]]
+                     self.stripms(row['task_time_submitted']),
+                     self.stripms(row['task_time_running']),
+                     self.stripms(row['task_try_time_returned']),
+                     self.timeDiff(row['task_time_running'],row['task_try_time_returned']),
+                     os.path.splitext(row['task_stdout'])[0]
+                     ]
                                   
-            taskStat = self.getTaskStatus(runID,row['task_id'])
-            pTask[self.pTitles['status']] = taskStat
 
             ## Fill nodeUsage dict
-            
-            if taskStat == "running":
+            if row['task_status_name'] == "running":
                 nRunning += 1
                 if row['hostname'] not in self.nodeUsage:
                     self.nodeUsage[row['hostname']] = 1
@@ -426,30 +374,11 @@ class pmon:
                     pass
                 pass
 
-            ## If task was executed in a previous run, fetch runtime data
-            if taskStat == "memo_done" and dig:
-                if self.debug > 1:
-                    print("Dig deeper...")
-                    print('runID=',runID,', task_id=',row['task_id'],', task_hashsum=',row['task_hashsum'])
-                    pass
-                
-                (xRunID,xHost,xSubmitTime,xStartTime,xEndTime,xStatus) = self.getTaskRunData(runID,row['task_id'],row['task_hashsum'])
-
-                pTask[self.pTitles['run_num']]    = int(self.runid2num[xRunID])
-                #pTask[self.pTitles['status']]     = xStatus
-                pTask[self.pTitles['hostname']]   = xHost
-                pTask[self.pTitles['submitTime']] = self.stripms(xSubmitTime)
-                pTask[self.pTitles['startTime']]  = self.stripms(xStartTime)
-                pTask[self.pTitles['endTime']]    = self.stripms(xEndTime)
-                pTask[self.pTitles['runTime']]    = self.timeDiff(xStartTime,xEndTime)
-                      
-
-            ## Final step for this task is adding it to the full task summary list
+            ## Finally, add this task's data to the master summary list
             self.pTasks.append(pTask)
             
             ## (Possibly) limit # of tasks processed -- most a development/debugging feature
             if self.taskLimit > 0 and rCount > self.taskLimit: break
-            
             pass
         
         ## Print out full task table
@@ -464,8 +393,6 @@ class pmon:
                 print(node, self.nodeUsage[node])
                 pass
             pass
-        
-
         return
 
     #########################################################################################
@@ -657,6 +584,7 @@ class pmon:
         ## (NOTE: as of 4/20/2020 this function is mostly obsolete,
         ## use deepTaskSummary() instead)
         ##############################################################
+        print('\n\n\n%ATTENTION: printTaskSummary is obsolete and disabled.  Use "newSummary" instead.\n\n')
         return
         ##############################################################
         ##############################################################
@@ -680,7 +608,11 @@ class pmon:
 
         ##  Query the 'task' table for data to present
         runID = wrow['run_id']
-        sql = 'select task_id,task_func_name,hostname,task_fail_count,task_time_submitted,task_time_running,task_time_returned,task_elapsed_time,task_stdout from task where run_id = "'+wrow['run_id']+'" order by task_id asc'
+        sql = ('select task_id,task_func_name,hostname,task_fail_count,task_time_submitted,'
+               'task_time_running,task_time_returned,task_elapsed_time,task_stdout '
+               'from task '
+               'where run_id = "'+wrow['run_id']+'" '
+               'order by task_id asc')
         (tRowz,tTitles) = self.stdQuery(sql)
 
         
@@ -736,7 +668,10 @@ class pmon:
         for row in range(numTasks):
             taskID = tRows[row][0]
             #print('runID = ',runID,', taskID = ',taskID)
-            sql = 'select task_id,timestamp,task_status_name from status where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" order by timestamp desc limit 1'
+            sql = ('select task_id,timestamp,task_status_name '
+                   'from status '
+                   'where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" '
+                   'order by timestamp desc limit 1')
             (sRowz,sTitles) = self.stdQuery(sql)
             if self.debug > 4: self.dumpTable(sTitles,sRowz)
             taskStat = sRowz[0]['task_status_name'] 
@@ -774,7 +709,7 @@ class pmon:
     ####################
     ## Driver functions
     ####################
-    def newSummary(self,runnum=None,dig=True,printSummary=True):
+    def taskSummary(self,runnum=None,dig=True,printSummary=True):
         ## This is the new standard summary: workflow summary + summary of tasks in current run
         self.printWorkflowSummary(runnum)
         self.deepTaskSummary(dig=dig,printSummary=printSummary)
@@ -803,9 +738,12 @@ class pmon:
         self.plotStats(runnum=runnum)
         return
 
-    def workflowHistory(self):
-        ## This is the workflowHistory: details for each workflow 'run'
-        sql = 'select workflow_name,user,host,time_began,time_completed,tasks_completed_count,tasks_failed_count,rundir from workflow order by time_began asc'
+    def runHistory(self):
+        ## This is the runHistory: details for each workflow 'run'
+        sql = ('select workflow_name,user,host,time_began,time_completed,'
+               'tasks_completed_count,tasks_failed_count,rundir '
+               'from workflow '
+               'order by time_began asc')
         (wrows,wtitles) = self.stdQuery(sql)
         if self.debug > 1:
             print('wtitles = ',wtitles)
@@ -863,11 +801,11 @@ class pmon:
 if __name__ == '__main__':
 
 
-    reportTypes = ['fullSummary','shortSummary','runHistory','newSummary','plot','runNums']
+    reportTypes = ['fullSummary','shortSummary','runHistory','taskSummary','taskHistory','plot','runNums']
 
     ## Parse command line arguments
     parser = argparse.ArgumentParser(description='A simple Parsl status reporter.  Available reports include:'+str(reportTypes))
-    parser.add_argument('reportType',help='Type of report to display (default=%(default)s)',nargs='?',default='newSummary')
+    parser.add_argument('reportType',help='Type of report to display (default=%(default)s)',nargs='?',default='taskSummary')
     parser.add_argument('-f','--file',default='monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
@@ -912,10 +850,12 @@ if __name__ == '__main__':
     elif args.reportType == 'shortSummary':
         m.shortSummary(runnum=args.runnum)
     elif args.reportType == 'runHistory':
-        m.workflowHistory()
-    elif args.reportType == 'newSummary':
+        m.runHistory()
+    elif args.reportType == 'taskSummary':
         #m.taskLimit=100
-        m.newSummary(runnum=args.runnum,dig=args.taskXdata,printSummary=True)
+        m.taskSummary(runnum=args.runnum,dig=args.taskXdata,printSummary=True)
+    elif args.reportType == 'taskHistory':
+        print("taskHistory is not yet operational")
     elif args.reportType == 'plot':
         m.plot()
     elif args.reportType == 'runNums':
