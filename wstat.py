@@ -4,10 +4,10 @@
 ## Parsl web interface, but to complement them to create some useful
 ## interactive summaries specific to Parsl workflows.
 
-## Python dependencies: sqlite3, tabulate
+## Python dependencies: sqlite3, tabulate, matplotlib
 
 ## T.Glanzman - Spring 2019
-__version__ = "1.0.0 beta"
+__version__ = "0.9.20 beta"
 pVersion='0.9.0:lsst-dm-202005'    ## Parsl version
 
 import sys,os
@@ -41,7 +41,7 @@ class pmon:
         self.cur = self.con.cursor()                       ## create a 'cursor'
 
         ## List of all task stati defined by Parsl
-        self.statList = ['pending','launched','runnable','running','retry','unsched','unknown','exec_done','memo_done','failed','dep_fail']
+        self.statList = ['pending','launched','runnable','running','retry','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
 
         ## Read in the workflow (summary) table
         self.wrows = None
@@ -65,7 +65,7 @@ class pmon:
         self.nodeUsage = {}
         
         ## This template contains all known parsl task states
-        self.statTemplate = {'pending':0,'launched':0,'runnable':0,'running':0,'retry':0,'unsched':0,'unknown':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0}
+        self.statTemplate = {'pending':0,'launched':0,'runnable':0,'running':0,'retry':0,'unsched':0,'unknown':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0}
 
         return
 
@@ -310,12 +310,12 @@ class pmon:
 
         
 
-    def deepTaskSummary(self,runnum=None,opt=None,dig=True,printSummary=True):
+    def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None):
         ## The main purpose of this function is to fill the pTask and nodeUsage data structures
-        ##   dig=True to obtain task times from the run in which it successfully executed
+        ##   repType = report type, either "Summary" or "History"
         ##   printSummary=True to print (a potentially lengthy) task summary table
         
-        if self.debug > 0 : print("Entering deepTaskSummary(runnum=",runnum,", opt=",opt,", dig=",dig,", printSummary=",printSummary,")")
+        if self.debug > 0 : print("Entering getTaskData(runnum=",runnum,", opt=",opt,", repType=",repType,", printSummary=",printSummary,", taskID=",taskID,")")
         
         ##  Select requested initial Run in workflow table
         rowindex = self.selectRunID(runnum)
@@ -323,28 +323,45 @@ class pmon:
         if runnum == None: runnum = int(self.runid2num[wrow['run_id']])  # most recent run
         if self.debug > 0: print('--> run_id = ',wrow['run_id'])
 
-        ## Query DB for task summary of the *CURRENT STATE*, and
-        ## includes data from current and previous runs to get
-        ## execution statistics, as necessary
-        sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
-               'max(s.timestamp),s.task_status_name,'
-               'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
-               'from task t '
-               'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
-               'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
-               'where s.task_status_name!="memo_done" '
-               'group by t.task_id '
-               'order by t.task_id asc')
+        ## Create DB query for task data
+        if repType == "Summary" :
+            ## Fetch current state of each task in the specified run
+            sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
+                   'max(s.timestamp),s.task_status_name,'
+                   'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
+                   'from task t '
+                   'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
+                   'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
+                   'where s.task_status_name!="memo_done" '
+                   'group by t.task_id '
+                   'order by t.task_id asc')
+        elif repType == "History" :
+            ## Fetch full history of each task in the specified run
+            sqlx = ' '
+            if taskID != None:
+                sqlx = 'where t.task_id="'+str(taskID)+'" '
+                pass
+            sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
+                   's.timestamp,s.task_status_name,'
+                   'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
+                   'from task t '
+                   'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
+                   'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
+                   +sqlx+
+                   'order by t.task_id,s.timestamp asc')
+            pass
+        if self.debug > 0 : print("getTaskData: sql = ",sql)
 
+        ## Perform DB query
         (tRowz,tTitles) = self.stdQuery(sql)
         if self.debug > 1:
             self.dumpTable(tTitles,tRowz)
             pass
 
         
+        ## Look at every task...
         rCount = 0
         nRunning = 0
-        ## Look at every task...
         for row in tRowz:
             rCount += 1
 
@@ -364,7 +381,7 @@ class pmon:
                      ]
                                   
 
-            ## Fill nodeUsage dict
+            ## Fill nodeUsage dict (only for running tasks)
             if row['task_status_name'] == "running":
                 nRunning += 1
                 if row['hostname'] not in self.nodeUsage:
@@ -403,7 +420,7 @@ class pmon:
 
     def printStatusMatrix(self,runnum=None):
         ## Confirm pTasks[] has been filled
-        if not self.pTasksFilled: self.deepTaskSummary(runnum=runnum,printSummary=False)
+        if not self.pTasksFilled: self.getTaskData(runnum=runnum,printSummary=False)
 
         ## if no tasks defined, bail
         if len(self.pTasks) < 1:
@@ -455,7 +472,7 @@ class pmon:
         #
         
         ## Confirm pTasks[] has been filled
-        if not self.pTasksFilled: self.deepTaskSummary(runnum=runnum,printSummary=False)
+        if not self.pTasksFilled: self.getTaskData(runnum=runnum,printSummary=False)
 
         ## if no tasks defined, bail
         if len(self.pTasks) < 1:
@@ -582,7 +599,7 @@ class pmon:
     def printTaskSummary(self,runnum=None,opt=None):
         ##############################################################
         ## (NOTE: as of 4/20/2020 this function is mostly obsolete,
-        ## use deepTaskSummary() instead)
+        ## use getTaskData() instead)
         ##############################################################
         print('\n\n\n%ATTENTION: printTaskSummary is obsolete and disabled.  Use "newSummary" instead.\n\n')
         return
@@ -709,10 +726,11 @@ class pmon:
     ####################
     ## Driver functions
     ####################
-    def taskSummary(self,runnum=None,dig=True,printSummary=True):
+
+    def taskSummary(self,runnum=None,repType="Summary",printSummary=True,taskID=None):
         ## This is the new standard summary: workflow summary + summary of tasks in current run
         self.printWorkflowSummary(runnum)
-        self.deepTaskSummary(dig=dig,printSummary=printSummary)
+        self.getTaskData(repType=repType,printSummary=printSummary,taskID=taskID)
         self.printStatusMatrix(runnum=runnum)
         return
 
@@ -733,7 +751,7 @@ class pmon:
 
     def plot(self,runnum=None):
         self.printWorkflowSummary()
-        #self.deepTaskSummary(runnum=runnum,dig=True,printSummary=False)
+        #self.getTaskData(runnum=runnum,dig=True,printSummary=False)
         self.printStatusMatrix(runnum=runnum)
         self.plotStats(runnum=runnum)
         return
@@ -809,17 +827,19 @@ if __name__ == '__main__':
     parser.add_argument('-f','--file',default='monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
-    parser.add_argument('-t','--taskXdata',action='store_false',default=True,help="disable digging into past runs for full task execution data")
+    parser.add_argument('-t','--taskID',default=None,help="specify task_id (taskHistory only)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
 
 
     parser.add_argument('-v','--version', action='version', version=__version__)
 
-
     args = parser.parse_args()
-
     print('\nwstat - Parsl workflow status (version ',__version__,', written for Parsl version '+pVersion+')\n')
 
+    if args.debug > 0:
+        print('command line args: ',args)
+        pass
+    
     startTime = datetime.datetime.now()
 
     ## Create a Parsl Monitor object
@@ -853,9 +873,9 @@ if __name__ == '__main__':
         m.runHistory()
     elif args.reportType == 'taskSummary':
         #m.taskLimit=100
-        m.taskSummary(runnum=args.runnum,dig=args.taskXdata,printSummary=True)
+        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True)
     elif args.reportType == 'taskHistory':
-        print("taskHistory is not yet operational")
+        m.taskSummary(runnum=args.runnum,repType="History",printSummary=True,taskID=args.taskID)
     elif args.reportType == 'plot':
         m.plot()
     elif args.reportType == 'runNums':
