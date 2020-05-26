@@ -310,7 +310,7 @@ class pmon:
 
         
 
-    def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None):
+    def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None):
         ## The main purpose of this function is to fill the pTask and nodeUsage data structures
         ##   repType = report type, either "Summary" or "History"
         ##   printSummary=True to print (a potentially lengthy) task summary table
@@ -364,7 +364,7 @@ class pmon:
         nRunning = 0
         for row in tRowz:
             rCount += 1
-
+            if taskStatus != None and not row['task_status_name'].startswith(taskStatus): continue
             ## Fill Task data list
             pTask = [row['task_id'],
                      row['task_func_name'],
@@ -596,141 +596,141 @@ class pmon:
     #########################################################################################
     #########################################################################################
 
-    def printTaskSummary(self,runnum=None,opt=None):
-        ##############################################################
-        ## (NOTE: as of 4/20/2020 this function is mostly obsolete,
-        ## use getTaskData() instead)
-        ##############################################################
-        print('\n\n\n%ATTENTION: printTaskSummary is obsolete and disabled.  Use "newSummary" instead.\n\n')
-        return
-        ##############################################################
-        ##############################################################
+    # def printTaskSummary(self,runnum=None,opt=None):
+    #     ##############################################################
+    #     ## (NOTE: as of 4/20/2020 this function is mostly obsolete,
+    #     ## use getTaskData() instead)
+    #     ##############################################################
+    #     print('\n\n\n%ATTENTION: printTaskSummary is obsolete and disabled.  Use "taskSummary" instead.\n\n')
+    #     return
+    #     ##############################################################
+    #     ##############################################################
 
 
 
 
         
-        ## The task summary is a composite presentation of values from
-        ## the 'task' and 'status' tables
+    #     ## The task summary is a composite presentation of values from
+    #     ## the 'task' and 'status' tables
 
-        ##  Select requested Run in workflow table
-        rowindex = self.selectRunID(runnum)
-        wrow = self.wrows[rowindex]
-        if runnum == None: runnum = int(self.runid2num[wrow['run_id']])
+    #     ##  Select requested Run in workflow table
+    #     rowindex = self.selectRunID(runnum)
+    #     wrow = self.wrows[rowindex]
+    #     if runnum == None: runnum = int(self.runid2num[wrow['run_id']])
 
-        ##  Header
-        header = '\n\nTask summary for run '+str(runnum)
-        if runnum == int(self.runmax):header += ' [most current run]'
-        print(header,'\n===========================================')
+    #     ##  Header
+    #     header = '\n\nTask summary for run '+str(runnum)
+    #     if runnum == int(self.runmax):header += ' [most current run]'
+    #     print(header,'\n===========================================')
 
-        ##  Query the 'task' table for data to present
-        runID = wrow['run_id']
-        sql = ('select task_id,task_func_name,hostname,task_fail_count,task_time_submitted,'
-               'task_time_running,task_time_returned,task_elapsed_time,task_stdout '
-               'from task '
-               'where run_id = "'+wrow['run_id']+'" '
-               'order by task_id asc')
-        (tRowz,tTitles) = self.stdQuery(sql)
+    #     ##  Query the 'task' table for data to present
+    #     runID = wrow['run_id']
+    #     sql = ('select task_id,task_func_name,hostname,task_fail_count,task_time_submitted,'
+    #            'task_time_running,task_time_returned,task_elapsed_time,task_stdout '
+    #            'from task '
+    #            'where run_id = "'+wrow['run_id']+'" '
+    #            'order by task_id asc')
+    #     (tRowz,tTitles) = self.stdQuery(sql)
 
         
-        ## Convert from sqlite3.Row to a simple 'list'
-        tRows = []
+    #     ## Convert from sqlite3.Row to a simple 'list'
+    #     tRows = []
         
-        ## Adjust data for presentation
-        logDir = 'not specified'
-        if tRowz[0]['task_stdout'] != None: logDir = os.path.dirname(tRowz[0]['task_stdout'])
-        stdoutIndx = tTitles.index('task_stdout')
-        elapsedIndx = tTitles.index('task_elapsed_time')
-        subTimeIndx = tTitles.index('task_time_submitted')
-        startTimeIndx = tTitles.index('task_time_running')
-        endTimeIndx = tTitles.index('task_time_returned')
+    #     ## Adjust data for presentation
+    #     logDir = 'not specified'
+    #     if tRowz[0]['task_stdout'] != None: logDir = os.path.dirname(tRowz[0]['task_stdout'])
+    #     stdoutIndx = tTitles.index('task_stdout')
+    #     elapsedIndx = tTitles.index('task_elapsed_time')
+    #     subTimeIndx = tTitles.index('task_time_submitted')
+    #     startTimeIndx = tTitles.index('task_time_running')
+    #     endTimeIndx = tTitles.index('task_time_returned')
         
-        for rw in tRowz:
-            tRows.append(list(rw))
-            if tRows[-1][stdoutIndx] != None:
-                tRows[-1][stdoutIndx] = os.path.basename(tRows[-1][stdoutIndx])  ## Remove stdout file path
-            if tRows[-1][elapsedIndx] != None:
-                a = datetime.timedelta(seconds=int(tRows[-1][elapsedIndx]))
-                tRows[-1][elapsedIndx] = str(a)
-                pass
+    #     for rw in tRowz:
+    #         tRows.append(list(rw))
+    #         if tRows[-1][stdoutIndx] != None:
+    #             tRows[-1][stdoutIndx] = os.path.basename(tRows[-1][stdoutIndx])  ## Remove stdout file path
+    #         if tRows[-1][elapsedIndx] != None:
+    #             a = datetime.timedelta(seconds=int(tRows[-1][elapsedIndx]))
+    #             tRows[-1][elapsedIndx] = str(a)
+    #             pass
 
-            ## Calculate run duration (wall clock time while running)
-            startTime = tRows[-1][startTimeIndx]
-            endTime = tRows[-1][endTimeIndx]
-            tRows[-1][elapsedIndx] = self.timeDiff(startTime,endTime)
+    #         ## Calculate run duration (wall clock time while running)
+    #         startTime = tRows[-1][startTimeIndx]
+    #         endTime = tRows[-1][endTimeIndx]
+    #         tRows[-1][elapsedIndx] = self.timeDiff(startTime,endTime)
 
-            for ix in [subTimeIndx,startTimeIndx,endTimeIndx]:
-                if tRows[-1][ix] != None:
-                    tRows[-1][ix] = self.stripms(tRows[-1][ix])
-                    pass
-                pass
-            pass
+    #         for ix in [subTimeIndx,startTimeIndx,endTimeIndx]:
+    #             if tRows[-1][ix] != None:
+    #                 tRows[-1][ix] = self.stripms(tRows[-1][ix])
+    #                 pass
+    #             pass
+    #         pass
             
 
-        ## Construct summary
-        numTasks = len(tRows)
-        durationSec = wrow['workflow_duration']
-        if durationSec == None:
-            print('workflow script has not reported completion, i.e., running, crashed, or killed')
-        else:
-            duration = datetime.timedelta(seconds=int(durationSec))
-            print('workflow elapsed time = ',duration,' (hh:mm:ss)')
-            print('number of Tasks launched = ',numTasks)
-            if numTasks == 0:return
-            pass
+    #     ## Construct summary
+    #     numTasks = len(tRows)
+    #     durationSec = wrow['workflow_duration']
+    #     if durationSec == None:
+    #         print('workflow script has not reported completion, i.e., running, crashed, or killed')
+    #     else:
+    #         duration = datetime.timedelta(seconds=int(durationSec))
+    #         print('workflow elapsed time = ',duration,' (hh:mm:ss)')
+    #         print('number of Tasks launched = ',numTasks)
+    #         if numTasks == 0:return
+    #         pass
 
-        ## Extract status data from 'status' table
-        tTitles.insert(2, "status")
-        tStat = dict(self.statTemplate)
-        for row in range(numTasks):
-            taskID = tRows[row][0]
-            #print('runID = ',runID,', taskID = ',taskID)
-            sql = ('select task_id,timestamp,task_status_name '
-                   'from status '
-                   'where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" '
-                   'order by timestamp desc limit 1')
-            (sRowz,sTitles) = self.stdQuery(sql)
-            if self.debug > 4: self.dumpTable(sTitles,sRowz)
-            taskStat = sRowz[0]['task_status_name'] 
-            if taskStat not in tStat:
-                print("%ERROR: new task status encountered: ",taskStat)
-                tStat['unknown'] += 1
-            else:
-                tStat[taskStat] += 1
-                pass
-            tRows[row].insert(2, taskStat)
-            pass
+    #     ## Extract status data from 'status' table
+    #     tTitles.insert(2, "status")
+    #     tStat = dict(self.statTemplate)
+    #     for row in range(numTasks):
+    #         taskID = tRows[row][0]
+    #         #print('runID = ',runID,', taskID = ',taskID)
+    #         sql = ('select task_id,timestamp,task_status_name '
+    #                'from status '
+    #                'where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" '
+    #                'order by timestamp desc limit 1')
+    #         (sRowz,sTitles) = self.stdQuery(sql)
+    #         if self.debug > 4: self.dumpTable(sTitles,sRowz)
+    #         taskStat = sRowz[0]['task_status_name'] 
+    #         if taskStat not in tStat:
+    #             print("%ERROR: new task status encountered: ",taskStat)
+    #             tStat['unknown'] += 1
+    #         else:
+    #             tStat[taskStat] += 1
+    #             pass
+    #         tRows[row].insert(2, taskStat)
+    #         pass
 
-        ## Adjust titles (mostly to make them smaller)
-        tTitles[tTitles.index('task_fail_count')] = '#fails'
-        tTitles[tTitles.index('task_elapsed_time')] = 'duration\nhh:mm:ss'
+    #     ## Adjust titles (mostly to make them smaller)
+    #     tTitles[tTitles.index('task_fail_count')] = '#fails'
+    #     tTitles[tTitles.index('task_elapsed_time')] = 'duration\nhh:mm:ss'
         
 
-        ## Pretty print task summary
+    #     ## Pretty print task summary
 
-        if opt == None:                 ## "Full" task summary
-            print(tabulate(tRows,headers=tTitles,tablefmt=tblfmt))
-            print('Task Status Summary: ',tStat)
-            print('Log file directory: ',logDir)
-        elif opt == "short":            ## "Short" task summary
-            sSum = []
-            for stat in tStat:
-                sSum.append([stat,tStat[stat]])
-            sSum.append(['total tasks',str(numTasks)])
-            print(tabulate(sSum,['State','#'],tablefmt=tblfmt))
-            pass
+    #     if opt == None:                 ## "Full" task summary
+    #         print(tabulate(tRows,headers=tTitles,tablefmt=tblfmt))
+    #         print('Task Status Summary: ',tStat)
+    #         print('Log file directory: ',logDir)
+    #     elif opt == "short":            ## "Short" task summary
+    #         sSum = []
+    #         for stat in tStat:
+    #             sSum.append([stat,tStat[stat]])
+    #         sSum.append(['total tasks',str(numTasks)])
+    #         print(tabulate(sSum,['State','#'],tablefmt=tblfmt))
+    #         pass
 
-        return
+    #     return
 
 
     ####################
     ## Driver functions
     ####################
 
-    def taskSummary(self,runnum=None,repType="Summary",printSummary=True,taskID=None):
+    def taskSummary(self,runnum=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None):
         ## This is the new standard summary: workflow summary + summary of tasks in current run
         self.printWorkflowSummary(runnum)
-        self.getTaskData(repType=repType,printSummary=printSummary,taskID=taskID)
+        self.getTaskData(repType=repType,printSummary=printSummary,taskID=taskID,taskStatus=taskStatus)
         self.printStatusMatrix(runnum=runnum)
         return
 
@@ -819,7 +819,7 @@ class pmon:
 if __name__ == '__main__':
 
 
-    reportTypes = ['fullSummary','shortSummary','runHistory','taskSummary','taskHistory','plot','runNums']
+    reportTypes = ['taskSummary','shortSummary','taskHistory','runNums','runHistory','plot']
 
     ## Parse command line arguments
     parser = argparse.ArgumentParser(description='A simple Parsl status reporter.  Available reports include:'+str(reportTypes))
@@ -828,6 +828,7 @@ if __name__ == '__main__':
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
     parser.add_argument('-t','--taskID',default=None,help="specify task_id (taskHistory only)")
+    parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
 
 
@@ -865,17 +866,15 @@ if __name__ == '__main__':
         sys.exit(1)
         
     ## Print out requested report
-    if args.reportType == 'fullSummary':
-        m.fullSummary(runnum=args.runnum)
+    if args.reportType == 'taskSummary':
+        #m.taskLimit=100
+        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True,taskStatus=args.taskStatus)
     elif args.reportType == 'shortSummary':
         m.shortSummary(runnum=args.runnum)
+    elif args.reportType == 'taskHistory':
+        m.taskSummary(runnum=args.runnum,repType="History",printSummary=True,taskID=args.taskID,taskStatus=args.taskStatus)
     elif args.reportType == 'runHistory':
         m.runHistory()
-    elif args.reportType == 'taskSummary':
-        #m.taskLimit=100
-        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True)
-    elif args.reportType == 'taskHistory':
-        m.taskSummary(runnum=args.runnum,repType="History",printSummary=True,taskID=args.taskID)
     elif args.reportType == 'plot':
         m.plot()
     elif args.reportType == 'runNums':
