@@ -189,7 +189,7 @@ class pmon:
         self.runnum2id = {}
         for row in self.wrows:
             runID = row['run_id']
-            runNum = os.path.basename(row['rundir'])
+            runNum = os.path.basename(row['rundir'])   ## "runNum" is defined by the runinfo/NNN directory
             self.runid2num[runID] = runNum
             self.runnum2id[int(runNum)] = runID
             if int(runNum) > self.runmax: self.runmax = int(runNum)
@@ -197,10 +197,11 @@ class pmon:
             pass
         self.numRuns = len(self.wrows)
         if self.debug > 1:
+            print('numRuns   = ',self.numRuns)
             print('runid2num = ',self.runid2num)
             print('runnum2id = ',self.runnum2id)
-            print('runmin = ',self.runmin)
-            print('runmax = ',self.runmax)
+            print('runmin    = ',self.runmin)
+            print('runmax    = ',self.runmax)
             pass
         return
 
@@ -241,9 +242,7 @@ class pmon:
         if irunNum == int(self.runmax):runNumTxt += '    <<-most current run->>'
         runID = row['run_id']
         exeDir = os.path.dirname(os.path.dirname(row['rundir']))
-
         completedTasks = row['tasks_completed_count']+row['tasks_failed_count']
-
 
         ## Run times
         runStart = row['time_began']
@@ -288,27 +287,6 @@ class pmon:
         return
 
 
-    def getTaskStatus(self,runID,taskID):
-        ################## OBSOLETE #################
-        ## Return the most recent status (task_status_name) for specified run and task
-        if self.debug > 0 : print("Entering getTaskStatus(runID=",runID,",taskID=",taskID,")")
-        ##
-        sql = ('select task_id,timestamp,task_status_name '
-               'from status '
-               'where run_id="'+str(runID)+'" and task_id="'+str(taskID)+'" '
-               'order by timestamp desc limit 1')
-        (sRowz,sTitles) = self.stdQuery(sql)
-        if self.debug > 1: self.dumpTable(sTitles,sRowz)
-        taskStat = sRowz[0]['task_status_name'] 
-        if taskStat not in self.statList:
-            print("%WARNING: new task status encountered: ",taskStat)
-            pass
-        if self.debug > 0 : print("Returning task status = ",taskStat)
-        return taskStat
-
-
-
-        
 
     def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None):
         ## The main purpose of this function is to fill the pTask and nodeUsage data structures
@@ -326,20 +304,24 @@ class pmon:
         ## Create DB query for task data
         if repType == "Summary" :
             ## Fetch current state of each task in the specified run
+            where = 'where s.task_status_name!="memo_done" '
+            if taskID != None:
+                where += 'and t.task_id="'+str(taskID)+'" '
+                pass
             sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
                    'max(s.timestamp),s.task_status_name,'
                    'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
                    'from task t '
                    'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
                    'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
-                   'where s.task_status_name!="memo_done" '
+                   +where+
                    'group by t.task_id '
                    'order by t.task_id asc')
         elif repType == "History" :
             ## Fetch full history of each task in the specified run
-            sqlx = ' '
+            where = ' '
             if taskID != None:
-                sqlx = 'where t.task_id="'+str(taskID)+'" '
+                where = 'where t.task_id="'+str(taskID)+'" '
                 pass
             sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
                    's.timestamp,s.task_status_name,'
@@ -347,7 +329,7 @@ class pmon:
                    'from task t '
                    'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
                    'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
-                   +sqlx+
+                   +where+
                    'order by t.task_id,s.timestamp asc')
             pass
         if self.debug > 0 : print("getTaskData: sql = ",sql)
@@ -364,7 +346,8 @@ class pmon:
         nRunning = 0
         for row in tRowz:
             rCount += 1
-            if taskStatus != None and not row['task_status_name'].startswith(taskStatus): continue
+            #            if taskStatus != None and not row['task_status_name'].startswith(taskStatus): continue
+            if taskStatus != None and not taskStatus in row['task_status_name']: continue
             ## Fill Task data list
             pTask = [row['task_id'],
                      row['task_func_name'],
@@ -404,12 +387,11 @@ class pmon:
 
         ## Print out node usage summary
         if len(self.nodeUsage) > 0:
-            print('\nNumber of running tasks = ',nRunning)
-            print('Number of active nodes = ',len(self.nodeUsage))
-            for node in self.nodeUsage:
-                print(node, self.nodeUsage[node])
-                pass
-            pass
+            print("\nNode usage summary:")
+            headers = ['Node', '#running']
+            print(tabulate(sorted(self.nodeUsage.items()), headers=headers, tablefmt=tblfmt))
+            print('  Number of active nodes = ',len(self.nodeUsage))
+            print('  Number of running tasks = ',nRunning)
         return
 
     #########################################################################################
@@ -432,9 +414,8 @@ class pmon:
 
 
         ## Tally status for each task type
-        ##  Output to taskStats{}:
+        ##  Store -> taskStats{}:
         ##     taskStats{'taskname1':{#status1:num1,#status2:num2,...},...}
-        ##  Then convert into a Pandas dataframe
         statList = self.statTemplate.keys()   # list of all status names
         taskStats = {}   # {'taskname':{statTemplate}}
         tNameIndx = self.pTitles['task_name']
@@ -442,6 +423,8 @@ class pmon:
         tRunIndx  = self.pTitles['runTime']
         nTaskTypes = 0
         nTasks = 0
+        statTotals=dict(self.statTemplate)
+        statTotals['TOTAL'] = 0
         for task in self.pTasks:
             nTasks += 1
             tName = task[tNameIndx]
@@ -449,18 +432,26 @@ class pmon:
             if tName not in taskStats.keys():
                 nTaskTypes += 1
                 taskStats[tName] = dict(self.statTemplate)
+                taskStats[tName]['TOTAL'] = 0
                 pass
             taskStats[tName][tStat] += 1
+            taskStats[tName]['TOTAL'] += 1
+            statTotals[tStat] += 1
+            statTotals['TOTAL'] += 1
             pass
-
-        ## df = pandas.DataFrame(columns=['a','b','c','d'], index=['x','y','z'])
-        ## df.loc['y'] = pandas.Series({'a':1, 'b':5, 'c':2, 'd':3})
-        pTaskStats = pd.DataFrame(columns=self.statTemplate.keys(), index=taskStats.keys())
+        taskStats['TOTAL'] = dict(statTotals)
+        
+        ## Then convert into a Pandas dataframe
+        ##    [Defining a pandas dataframe]
+        ##    df = pandas.DataFrame(columns=['a','b','c','d'], index=['x','y','z'])
+        ##    df.loc['y'] = pandas.Series({'a':1, 'b':5, 'c':2, 'd':3})
+        pTaskStats = pd.DataFrame(columns=list(self.statTemplate.keys())+['TOTAL'], index=taskStats.keys())
         for task in taskStats:
             pTaskStats.loc[task] = pd.Series(taskStats[task])
             pass
-
-        print('\n\tTASK STATUS MATRIX: \n\n',pTaskStats,'\n\n')
+        #print('\nTask status matrix: \n',pTaskStats,'\n\n')    ## native DataFrame formatted output
+        print('\nTask status matrix:')
+        print(tabulate(pTaskStats,headers='keys',tablefmt=tblfmt))
         return
 
 
@@ -489,19 +480,19 @@ class pmon:
         ##     '#fails':5,'submitTime':6,'startTime':7,'endTime':8,'runTime':9,'stdout':10}
 
         ## Tally execution runtimes for "done" tasks
-        histData = {}
+        histData = {}  ## {"taskName":[runTime1,runTime2,...],...}
         tNameIndx = self.pTitles['task_name']
         tStatIndx = self.pTitles['status']
         tRunIndx  = self.pTitles['runTime']
         nTasks = 0
         nTaskTypes = 0
         nDone = 0
-        print('tNameIndx = ',tNameIndx)
         for task in self.pTasks:
             nTasks += 1
             tName = task[tNameIndx]
             tStat = task[tStatIndx]
-            if tStat.endswith('done'):
+#            if tStat.endswith('done'):      ## Currently includes "exec_done" and "memo_done"
+            if 'done' in tStat:      ## Currently includes "exec_done" and "memo_done"
                 nDone += 1
                 if task[tRunIndx] == None:
                     print('%ERROR: monitoring.db bug.  Completed task has no runtime: ',task[:9])
@@ -516,12 +507,31 @@ class pmon:
             pass
 
         print('Total tasks = ',nTasks,'\nTotal task types = ',nTaskTypes,'\nTotal tasks done = ',nDone)
+
         if self.debug > 1 :
             for task in histData:
                 print('task: ',task,', len = ',len(histData[task]))
+                print('  histData: ',histData[task])
                 pass
             pass
 
+
+        ## At this point, all data is stored in tuples (in the histData{})
+        for task in histData.keys():
+            print("Histogramming data for task ",task)
+            fig = plt.figure()
+            plt.suptitle(task)
+            df = pd.DataFrame(histData[task])
+            h = df.plot.hist(bins=20)
+            h.set_ylabel("# instances")
+            h.set_xlabel("time (min)")
+
+                         
+            plt.show()
+            pass
+
+
+        return
         #
         ## Histogram run time separately for each task type
         #print('task = ',task,', histData[task] = ',str(histData[task]))
@@ -560,10 +570,12 @@ class pmon:
 
         ## matplotlib.pyplot.subplots(nrows=1, ncols=1, sharex=False, sharey=False, squeeze=True, subplot_kw=None, gridspec_kw=None, **fig_kw)[source]
         fig, ax = plt.subplots(nrows=nrows,ncols=ncols)
+        print('fig = ',fig)
+        print('ax = ',ax)
 
         for task in histData.keys():
 
-            print(task)
+            print('Plotting: task = ',task)
 
             # the histogram of the data
             n, bins, patches = ax.hist(histData[task], num_bins)
@@ -735,18 +747,18 @@ class pmon:
         return
 
 
-    def fullSummary(self,runnum=None):
-        ## This is the standard summary: workflow summary + summary of tasks in current run
-        self.printWorkflowSummary(runnum)
-        self.printTaskSummary(runnum)
-        return
+    # def fullSummary(self,runnum=None):
+    #     ## This is the standard summary: workflow summary + summary of tasks in current run
+    #     self.printWorkflowSummary(runnum)
+    #     self.printTaskSummary(runnum)
+    #     return
 
 
     def shortSummary(self,runnum=None):
         ## This is the short summary:
         self.printWorkflowSummary(runnum)
         self.printStatusMatrix(runnum=runnum)
-        self.printTaskSummary(runnum,opt='short')
+        ##self.printTaskSummary(runnum,opt='short')
         return
 
     def plot(self,runnum=None):
@@ -868,7 +880,7 @@ if __name__ == '__main__':
     ## Print out requested report
     if args.reportType == 'taskSummary':
         #m.taskLimit=100
-        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True,taskStatus=args.taskStatus)
+        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True,taskID=args.taskID,taskStatus=args.taskStatus)
     elif args.reportType == 'shortSummary':
         m.shortSummary(runnum=args.runnum)
     elif args.reportType == 'taskHistory':
