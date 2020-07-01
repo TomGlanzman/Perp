@@ -7,8 +7,8 @@
 ## Python dependencies: sqlite3, tabulate, matplotlib
 
 ## T.Glanzman - Spring 2019
-__version__ = "0.9.20 beta"
-pVersion='0.9.0:lsst-dm-202005'    ## Parsl version
+__version__ = "1.0.0"
+pVersion='1.0.0:lsst-dm-202005'    ## Parsl version
 
 import sys,os
 import sqlite3
@@ -41,7 +41,16 @@ class pmon:
         self.cur = self.con.cursor()                       ## create a 'cursor'
 
         ## List of all task stati defined by Parsl
-        self.statList = ['pending','launched','runnable','running','retry','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
+        self.statList = ['pending','launched','running','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
+        ## This template contains all known parsl task states
+        self.statTemplate = {'pending':0,'launched':0,'running':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0,'unsched':0,'unknown':0}
+
+        self.statPresets = {
+            'notdone':['pending','launched','running'],
+            'runz':['running','exec_done','memo_done','failed','dep_fail','fail_retryable'],
+            'dead':['exec_done','memo_done','failed','dep_fail','fail_retryable'],
+            'oddball':['unsched','unknown']
+        }
 
         ## Read in the workflow (summary) table
         self.wrows = None
@@ -64,9 +73,6 @@ class pmon:
         ## number of tasks running on them.  {nodeID:#runningTasks}
         self.nodeUsage = {}
         
-        ## This template contains all known parsl task states
-        self.statTemplate = {'pending':0,'launched':0,'runnable':0,'running':0,'retry':0,'unsched':0,'unknown':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0}
-
         return
 
 
@@ -293,7 +299,7 @@ class pmon:
         ##   repType = report type, either "Summary" or "History"
         ##   printSummary=True to print (a potentially lengthy) task summary table
         
-        if self.debug > 0 : print("Entering getTaskData(runnum=",runnum,", opt=",opt,", repType=",repType,", printSummary=",printSummary,", taskID=",taskID,")")
+        if self.debug > 0 : print("Entering getTaskData(runnum=",runnum,", opt=",opt,", repType=",repType,", printSummary=",printSummary,", taskID=",taskID," taskStatus=",taskStatus,")")
         
         ##  Select requested initial Run in workflow table
         rowindex = self.selectRunID(runnum)
@@ -308,6 +314,7 @@ class pmon:
             if taskID != None:
                 where += 'and t.task_id="'+str(taskID)+'" '
                 pass
+            ## The following sql is my current magnum opus in the field of databasery ;)
             sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
                    'max(s.timestamp),s.task_status_name,'
                    'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
@@ -343,11 +350,28 @@ class pmon:
         
         ## Look at every task...
         rCount = 0
+        grCount = 0   # 'good' row count
         nRunning = 0
         for row in tRowz:
             rCount += 1
-            #            if taskStatus != None and not row['task_status_name'].startswith(taskStatus): continue
-            if taskStatus != None and not taskStatus in row['task_status_name']: continue
+
+            if taskStatus != None:
+                ## Select tasks based on status or a collection of stati
+                keep = False
+                if taskStatus in list(self.statPresets.keys()):
+                    for prekey in self.statPresets:
+                        if taskStatus == prekey and row['task_status_name'] in self.statPresets[prekey]:
+                            keep = True
+                            break
+                        pass
+                    pass
+                elif taskStatus in row['task_status_name']:
+                    keep = True
+                    pass
+                if not keep: continue
+                pass
+            grCount += 1
+            
             ## Fill Task data list
             pTask = [row['task_id'],
                      row['task_func_name'],
@@ -378,7 +402,7 @@ class pmon:
             self.pTasks.append(pTask)
             
             ## (Possibly) limit # of tasks processed -- most a development/debugging feature
-            if self.taskLimit > 0 and rCount > self.taskLimit: break
+            if self.taskLimit > 0 and grCount >= self.taskLimit: break
             pass
         
         ## Print out full task table
@@ -467,7 +491,7 @@ class pmon:
 
         ## if no tasks defined, bail
         if len(self.pTasks) < 1:
-            print("Nothing to do: pTasks is empty!")
+            print("Nothing to plot: pTasks is empty!")
             return
         else:
             print("There are ",len(self.pTasks)," tasks in pTasks.")
@@ -487,6 +511,7 @@ class pmon:
         nTasks = 0
         nTaskTypes = 0
         nDone = 0
+        nErrors = 0
         for task in self.pTasks:
             nTasks += 1
             tName = task[tNameIndx]
@@ -495,7 +520,12 @@ class pmon:
             if 'done' in tStat:      ## Currently includes "exec_done" and "memo_done"
                 nDone += 1
                 if task[tRunIndx] == None:
-                    print('%ERROR: monitoring.db bug.  Completed task has no runtime: ',task[:9])
+                    nErrors += 1
+                    if nErrors < 10:
+                        print('%ERROR: monitoring.db bug.  Completed task has no runtime: ',task[:9])
+                    elif nErrors == 10:
+                        print('%ERROR: Too many tasks with no runtime...')
+                        pass
                     continue
                 if task[tNameIndx] not in histData.keys():
                     nTaskTypes += 1
@@ -506,7 +536,7 @@ class pmon:
                 pass
             pass
 
-        print('Total tasks = ',nTasks,'\nTotal task types = ',nTaskTypes,'\nTotal tasks done = ',nDone)
+        print('Total tasks = ',nTasks,'\nTotal task types = ',nTaskTypes,'\nTotal tasks done = ',nDone,'\nTotal missing runtimes = ',nErrors)
 
         if self.debug > 1 :
             for task in histData:
@@ -519,8 +549,8 @@ class pmon:
         ## At this point, all data is stored in tuples (in the histData{})
         for task in histData.keys():
             print("Histogramming data for task ",task)
-            fig = plt.figure()
-            plt.suptitle(task)
+            #fig = plt.figure()
+            #plt.suptitle(task)
             df = pd.DataFrame(histData[task])
             h = df.plot.hist(bins=20)
             h.set_ylabel("# instances")
@@ -831,29 +861,35 @@ class pmon:
 if __name__ == '__main__':
 
 
-    reportTypes = ['taskSummary','shortSummary','taskHistory','runNums','runHistory','plot']
+    reportTypes = ['shortSummary','taskSummary','taskHistory','runNums','runHistory','plot']
 
     ## Parse command line arguments
     parser = argparse.ArgumentParser(description='A simple Parsl status reporter.  Available reports include:'+str(reportTypes))
-    parser.add_argument('reportType',help='Type of report to display (default=%(default)s)',nargs='?',default='taskSummary')
-    parser.add_argument('-f','--file',default='monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
+    parser.add_argument('reportType',help='Type of report to display (default=%(default)s)',nargs='?',default='shortSummary')
+    parser.add_argument('-f','--file',default='./monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
     parser.add_argument('-t','--taskID',default=None,help="specify task_id (taskHistory only)")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
+    parser.add_argument('-l','--taskLimit',type=int,default=0,help="limit output to N tasks (default is no limit)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
 
 
     parser.add_argument('-v','--version', action='version', version=__version__)
 
     args = parser.parse_args()
-    print('\nwstat - Parsl workflow status (version ',__version__,', written for Parsl version '+pVersion+')\n')
+    print('wstat - Parsl workflow status (version ',__version__,', written for Parsl version '+pVersion+')\n')
 
     if args.debug > 0:
         print('command line args: ',args)
         pass
     
     startTime = datetime.datetime.now()
+
+    ## Check monitoring database exists
+    if not os.path.exists(args.file):
+        print("%ERROR: monitoring database file not found, ",args.file)
+        sys.exit(1)
 
     ## Create a Parsl Monitor object
     m = pmon(dbfile=args.file)
@@ -876,6 +912,11 @@ if __name__ == '__main__':
     if not args.runnum == None and (int(args.runnum) > m.runmax or int(args.runnum) < m.runmin):
         print('%ERROR: Requested run number, ',args.runnum,' is out of range (',m.runmin,'-',m.runmax,')')
         sys.exit(1)
+
+    ## Set task output limit?
+    if args.taskLimit > 0:
+        m.taskLimit = args.taskLimit
+        pass
         
     ## Print out requested report
     if args.reportType == 'taskSummary':
