@@ -309,35 +309,36 @@ class pmon:
 
         ## Create DB query for task data
         if repType == "Summary" :
-            ## Fetch current state of each task in the specified run
-            where = 'where s.task_status_name!="memo_done" '
+            ## Fetch current state of each task
+            #where = "where s.task_status_name!='memo_done' "
+            where = " "
             if taskID != None:
-                where += 'and t.task_id="'+str(taskID)+'" '
+                where += "and t.task_id='"+str(taskID)+"' "
                 pass
             ## The following sql is my current magnum opus in the field of databasery ;)
-            sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
-                   'max(s.timestamp),s.task_status_name,'
-                   'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
-                   'from task t '
-                   'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
-                   'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
+            sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
+                   "max(s.timestamp),s.task_status_name,"
+                   "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
+                   "from task t "
+                   "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
+                   "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
                    +where+
-                   'group by t.task_id '
-                   'order by t.task_id asc')
+                   "group by t.task_id "
+                   "order by t.task_id asc")
         elif repType == "History" :
-            ## Fetch full history of each task in the specified run
-            where = ' '
+            ## Fetch full history of each task
+            where = " "
             if taskID != None:
-                where = 'where t.task_id="'+str(taskID)+'" '
+                where += "where t.task_id='"+str(taskID)+"' "
                 pass
-            sql = ('select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,'
-                   's.timestamp,s.task_status_name,'
-                   'y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned '
-                   'from task t '
-                   'join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) '
-                   'join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) '
+            sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
+                   "s.timestamp,s.task_status_name,"
+                   "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
+                   "from task t "
+                   "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
+                   "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
                    +where+
-                   'order by t.task_id,s.timestamp asc')
+                   "order by t.task_id,s.timestamp asc")
             pass
         if self.debug > 0 : print("getTaskData: sql = ",sql)
 
@@ -371,7 +372,21 @@ class pmon:
                 if not keep: continue
                 pass
             grCount += 1
-            
+
+
+            if self.debug > 1:
+                print('rCount,task_stdout = ',rCount,row['task_stdout'])
+                print(row)
+                pass
+
+            ## Prepare stdDir, directory containing stderr and stdout
+            stdDir = row['task_stdout']
+            if stdDir == None:
+                stdDir = "None"
+            else:
+                stdDir = os.path.splitext(stdDir)[0]
+                pass
+                      
             ## Fill Task data list
             pTask = [row['task_id'],
                      row['task_func_name'],
@@ -384,7 +399,7 @@ class pmon:
                      self.stripms(row['task_time_running']),
                      self.stripms(row['task_try_time_returned']),
                      self.timeDiff(row['task_time_running'],row['task_try_time_returned']),
-                     os.path.splitext(row['task_stdout'])[0]
+                     stdDir
                      ]
                                   
 
@@ -827,7 +842,11 @@ class pmon:
             row.insert(5,run_duration)
             row[3] = self.stripms(row[3])
             row[4] = self.stripms(row[4])
-            if run_duration is None: row[4] = '-> running or killed <-'
+            if run_duration is None:
+                row[4] = '-> incomplete <-'
+            else:
+                row[5] = datetime.timedelta(days=run_duration.days,seconds=run_duration.seconds)
+                pass
             row.insert(0,os.path.basename(row[8]))
             rows.append(row)
         ## Print the report
@@ -877,6 +896,9 @@ if __name__ == '__main__':
 
     parser.add_argument('-v','--version', action='version', version=__version__)
 
+
+    print(sys.version)
+    
     args = parser.parse_args()
     print('wstat - Parsl workflow status (version ',__version__,', written for Parsl version '+pVersion+')\n')
 
