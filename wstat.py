@@ -41,10 +41,15 @@ class pmon:
         self.cur = self.con.cursor()                       ## create a 'cursor'
 
         ## List of all task stati defined by Parsl
-        self.statList = ['pending','launched','running','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
+        self.statList = ['pending','launched','joining','running','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
         ## This template contains all known parsl task states
-        self.statTemplate = {'pending':0,'launched':0,'running':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0,'unsched':0,'unknown':0}
-
+        #OBS#self.statTemplate = {'pending':0,'launched':0,'running':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0,'unsched':0,'unknown':0}
+        self.statTemplate = {}
+        ## Build initial task state tally dictionary
+        for state in self.statList:
+            self.statTemplate[state] = 0
+            pass
+        
         self.statPresets = {
             'notdone':['pending','launched','running'],
             'runz':['running','exec_done','memo_done','failed','dep_fail','fail_retryable'],
@@ -570,6 +575,7 @@ class pmon:
             h = df.plot.hist(bins=20)
             h.set_ylabel("# instances")
             h.set_xlabel("time (min)")
+            h.set_title(task)
 
                          
             plt.show()
