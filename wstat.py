@@ -558,10 +558,10 @@ class pmon:
 
         print('Total tasks = ',nTasks,'\nTotal task types = ',nTaskTypes,'\nTotal tasks done = ',nDone,'\nTotal missing runtimes = ',nErrors)
 
-        if self.debug > 1 :
+        if self.debug > 0 :
             for task in histData:
                 print('task: ',task,', len = ',len(histData[task]))
-                print('  histData: ',histData[task])
+                if self.debug > 1: print('  histData: ',histData[task])
                 pass
             pass
 
@@ -572,7 +572,9 @@ class pmon:
             #fig = plt.figure()
             #plt.suptitle(task)
             df = pd.DataFrame(histData[task])
-            h = df.plot.hist(bins=20)
+            h = df.plot.hist(bins=25)
+            print("type(h) = ",type(h))
+            print("dir(h) = ",dir(h))
             h.set_ylabel("# instances")
             h.set_xlabel("time (min)")
             h.set_title(task)
