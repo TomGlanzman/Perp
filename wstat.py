@@ -7,7 +7,7 @@
 ## Python dependencies: sqlite3, tabulate, matplotlib
 
 ## T.Glanzman - Spring 2019
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 pVersion='1.0.0:lsst-dm-202005'    ## Parsl version
 
 import sys,os
@@ -299,7 +299,7 @@ class pmon:
 
 
 
-    def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None):
+    def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None,taskName=None):
         ## The main purpose of this function is to fill the pTask and nodeUsage data structures
         ##   repType = report type, either "Summary" or "History"
         ##   printSummary=True to print (a potentially lengthy) task summary table
@@ -316,11 +316,17 @@ class pmon:
         if repType == "Summary" :
             ## Fetch current state of each task
             #where = "where s.task_status_name!='memo_done' "
-            where = " "
+            where = ""
             if taskID != None:
-                where += "and t.task_id='"+str(taskID)+"' "
+                where += "t.task_id='"+str(taskID)+"' "
                 pass
+            if taskName != None:
+                if len(where) > 0: where += " and "
+                where += " t.task_func_name='"+str(taskName)+"' "
+            if len(where) > 0: where = " where "+where
+            
             ## The following sql is my current magnum opus in the field of databasery ;)
+            #############Original sql as of 10/14/2020##################
             sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
                    "max(s.timestamp),s.task_status_name,"
                    "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
@@ -329,7 +335,17 @@ class pmon:
                    "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
                    +where+
                    "group by t.task_id "
-                   "order by t.task_id asc")
+                   "order by t.task_id asc ")
+            ### EXPERIMENTAL ###
+            # sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
+            #        "max(s.timestamp),s.task_status_name,"
+            #        "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
+            #        "from task t "
+            #        "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
+            #        "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
+            #        +where+
+            #        "group by t.task_hashsum "
+            #        "order by t.task_id asc")
         elif repType == "History" :
             ## Fetch full history of each task
             where = " "
@@ -411,10 +427,15 @@ class pmon:
             ## Fill nodeUsage dict (only for running tasks)
             if row['task_status_name'] == "running":
                 nRunning += 1
-                if row['hostname'] not in self.nodeUsage:
-                    self.nodeUsage[row['hostname']] = 1
+                if row['hostname'] == None:
+                    hn = 'unknown'
                 else:
-                    self.nodeUsage[row['hostname']] += 1
+                    hn = row['hostname']
+                    pass
+                if hn not in self.nodeUsage:
+                    self.nodeUsage[hn] = 1
+                else:
+                    self.nodeUsage[hn] += 1
                     pass
                 pass
 
@@ -567,22 +588,26 @@ class pmon:
 
 
         ## At this point, all data is stored in tuples (in the histData{})
+        h = []
+        hno=0
+        import pickle
         for task in histData.keys():
             print("Histogramming data for task ",task)
             #fig = plt.figure()
             #plt.suptitle(task)
             df = pd.DataFrame(histData[task])
-            h = df.plot.hist(bins=25)
-            print("type(h) = ",type(h))
-            print("dir(h) = ",dir(h))
-            h.set_ylabel("# instances")
-            h.set_xlabel("time (min)")
-            h.set_title(task)
-
+            print(f'df = {df}')
+            h.append(df.plot.hist(bins=25))
+            ###print("type(h) = ",type(h))
+            ###print("dir(h) = ",dir(h))
+            h[-1].set_ylabel("# instances")
+            h[-1].set_xlabel("time (min)")
+            h[-1].set_title(task)
+            hno+=1
                          
             plt.show()
             pass
-
+        pickle.dump(h,open('plots.pickle','wb'))
 
         return
         #
@@ -792,10 +817,10 @@ class pmon:
     ## Driver functions
     ####################
 
-    def taskSummary(self,runnum=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None):
+    def taskSummary(self,runnum=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None,taskName=None):
         ## This is the new standard summary: workflow summary + summary of tasks in current run
         self.printWorkflowSummary(runnum)
-        self.getTaskData(repType=repType,printSummary=printSummary,taskID=taskID,taskStatus=taskStatus)
+        self.getTaskData(repType=repType,printSummary=printSummary,taskID=taskID,taskStatus=taskStatus,taskName=taskName)
         self.printStatusMatrix(runnum=runnum)
         return
 
@@ -896,7 +921,8 @@ if __name__ == '__main__':
     parser.add_argument('-f','--file',default='./monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
-    parser.add_argument('-t','--taskID',default=None,help="specify task_id (taskHistory only)")
+    parser.add_argument('-t','--taskID',default=None,help="specify task_id")
+    parser.add_argument('-n','--taskName',default=None,help="specify task_func_name")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
     parser.add_argument('-l','--taskLimit',type=int,default=0,help="limit output to N tasks (default is no limit)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
@@ -951,11 +977,11 @@ if __name__ == '__main__':
     ## Print out requested report
     if args.reportType == 'taskSummary':
         #m.taskLimit=100
-        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True,taskID=args.taskID,taskStatus=args.taskStatus)
+        m.taskSummary(runnum=args.runnum,repType="Summary",printSummary=True,taskID=args.taskID,taskStatus=args.taskStatus,taskName=args.taskName)
     elif args.reportType == 'shortSummary':
         m.shortSummary(runnum=args.runnum)
     elif args.reportType == 'taskHistory':
-        m.taskSummary(runnum=args.runnum,repType="History",printSummary=True,taskID=args.taskID,taskStatus=args.taskStatus)
+        m.taskSummary(runnum=args.runnum,repType="History",printSummary=True,taskID=args.taskID,taskStatus=args.taskStatus,taskName=args.taskName)
     elif args.reportType == 'runHistory':
         m.runHistory()
     elif args.reportType == 'plot':
