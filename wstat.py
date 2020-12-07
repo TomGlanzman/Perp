@@ -329,7 +329,7 @@ class pmon:
             #############Original sql as of 10/14/2020##################
             sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
                    "max(s.timestamp),s.task_status_name,"
-                   "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
+                   "y.hostname,y.try_id,y.task_try_time_launched,y.task_try_time_running,y.task_try_time_returned "
                    "from task t "
                    "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
                    "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
@@ -339,7 +339,7 @@ class pmon:
             ### EXPERIMENTAL ###
             # sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
             #        "max(s.timestamp),s.task_status_name,"
-            #        "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
+            #        "y.hostname,y.try_id,y.task_try_time_launched,y.task_try_time_running,y.task_try_time_returned "
             #        "from task t "
             #        "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
             #        "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
@@ -354,7 +354,7 @@ class pmon:
                 pass
             sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
                    "s.timestamp,s.task_status_name,"
-                   "y.hostname,y.try_id,y.task_time_submitted,y.task_time_running,y.task_try_time_returned "
+                   "y.hostname,y.try_id,y.task_try_time_launched,y.task_try_time_running,y.task_try_time_returned "
                    "from task t "
                    "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
                    "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
@@ -416,10 +416,10 @@ class pmon:
                      row['hostname'],
                      row['try_id'],
                      row['task_fail_count'],
-                     self.stripms(row['task_time_submitted']),
-                     self.stripms(row['task_time_running']),
+                     self.stripms(row['task_try_time_launched']),
+                     self.stripms(row['task_try_time_running']),
                      self.stripms(row['task_try_time_returned']),
-                     self.timeDiff(row['task_time_running'],row['task_try_time_returned']),
+                     self.timeDiff(row['task_try_time_running'],row['task_try_time_returned']),
                      stdDir
                      ]
                                   
