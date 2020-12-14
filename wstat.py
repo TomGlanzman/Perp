@@ -34,6 +34,7 @@ class pmon:
 
         ## sqlite3 database connection and cursor
         self.con = sqlite3.connect(self.dbfile,
+                                   timeout=30,             ## time limit if DB locked
                                    detect_types=sqlite3.PARSE_DECLTYPES |
                                    sqlite3.PARSE_COLNAMES) ## special connect to sqlite3 file
 #        self.con = sqlite3.connect(self.dbfile)           ## vanilla connect to sqlite3 file
