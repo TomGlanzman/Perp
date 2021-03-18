@@ -42,7 +42,7 @@ class pmon:
         self.cur = self.con.cursor()                       ## create a 'cursor'
 
         ## List of all task stati defined by Parsl
-        self.statList = ['pending','launched','joining','running','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
+        self.statList = ['pending','launched','joining','running','running_ended','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
         ## This template contains all known parsl task states
         #OBS#self.statTemplate = {'pending':0,'launched':0,'running':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0,'unsched':0,'unknown':0}
         self.statTemplate = {}
