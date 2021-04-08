@@ -18,6 +18,21 @@ create view if not exists runview as select
        from workflow;
 
 
+/* create a view of all non-cached "transient" tasks based on latest invocation */
+create view if not exists nctaskview as select
+       rv.runnum,
+       t.task_id,
+       t.task_func_name as function,
+       t.task_fail_count as fails,
+       strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
+       time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime
+       from task t
+       join runview rv on (t.run_id=rv.run_id)
+       where (t.task_hashsum is null and task_memoize=0)
+       group by t.task_func_name;
+
+
 /* create a view of all (cached) tasks with global numbering based on time of first invocation */
 /* ignore uncached parsl apps for now */
 create view if not exists taskview as select
@@ -27,11 +42,10 @@ create view if not exists taskview as select
        t.task_hashsum,
        t.task_func_name as function,
        t.task_fail_count as fails,
-       strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',max(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
        t.task_stdout as stdout
-       
        from task t
        join runview rv on (t.run_id=rv.run_id)
        where t.task_hashsum is not null

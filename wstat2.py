@@ -25,6 +25,40 @@ import pandas as pd
 tblfmt = 'psql'
 
 
+## Selection of SQL commands used within pmon
+
+stdVariables = (
+       'rv.runnum,'
+       'tv.tasknum,'
+       'tv.task_id,'
+       'tv.function,'
+       's.task_status_name as status,'
+       "strftime('%Y-%m-%d %H:%M:%S',s.timestamp) as timestamp,"
+       'tv.fails,'
+       'y.try_id,'
+       'y.hostname,'
+       "strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,"
+       "strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_running) as start,"
+       "time((julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as waitTime,"
+       "strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_returned) as ended,"
+       "time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime "
+    )
+
+stdSources = (
+       'from taskview tv '
+       'join try y on (rv.run_id=y.run_id and tv.task_id=y.task_id) '
+       'join status s on (rv.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id) '
+       'join runview rv on (rv.run_id=y.run_id)'
+    )
+
+taskHistoryQuery = ('select '+stdVariables+stdSources+
+       'where tv.tasknum=#tasknum# #morewhere# '
+       'order by s.timestamp asc ')
+
+recentStatusQuery = ('select '+stdVariables+stdSources+
+       'order by s.timestamp desc '
+       'limit #limit# ')
+
 class pmon:
     ### class pmon - interpret Parsl monitoring database
     def __init__(self,dbfile='monitoring.db',debug=0):
@@ -57,7 +91,16 @@ class pmon:
             'oddball':['unsched','unknown']
         }
 
-        ## Load in the workflow (summary) table
+
+        ## Prepare monitoring database with needed views, if necessary
+        self.makeViewsSQL=os.path.join(sys.path[0],'makeViews.sql')
+        if not self.checkViews():
+            print('%WARNING: This monitoring database does not contain the necessary "views" to continue')
+            self.storeViews()
+            pass
+
+
+        ## Load in the workflow (run) summary table
         self.wrows = None
         self.wtitles = None
         self.runid2num = None
@@ -65,7 +108,6 @@ class pmon:
         self.numRuns = 0
         self.runmin = 999999999
         self.runmax = -1
-        self.storeViews()
         self.loadWorkflowTable()
 
         ## Prepare for task summary data
@@ -92,11 +134,39 @@ class pmon:
     ##########################
 
 
+    def checkViews(self):
+        ## Check that this sqlite3 database file contains the needed views
+        viewList = ['runview','nctaskview','taskview','sumv1','sumv2','summary']
+        views = self.getSchemaList(type='view')
+        if len(views)==0:return False
+        for view in viewList:
+            if view not in views:return False
+        return True
+    
     def storeViews(self):
         ## Store custom views into the monitoring.db file
+        ##   These view definitions are stored in an external file
         if self.debug>0:print('Entering storeViews')
-        ##
-        ## TBA
+        print('Attempting to add sqlite "views" to monitoring database')
+        print(f'makeViewsSQL = {self.makeViewsSQL}')
+        with open(self.makeViewsSQL,'r') as f:
+            sql=f.read()
+            pass
+
+        ## Remove SQL /* comments */ from file content
+        while True:
+            start=sql.find('/*')
+            end=sql.find('*/')+2
+            if start == -1: break
+            sql=sql[:start]+sql[end:]
+            pass
+        
+        ## Must split multiple sql commands into separate python sqlite3 calls
+        cmds = sql.split(';')
+        print(f'There were {len(cmds)} sql commands found in the file')
+        for cmd in cmds:
+            if len(cmd)>0:rows=self.sqlCmd(cmd)
+            pass
         return
 
     
@@ -171,6 +241,18 @@ class pmon:
             if self.debug > 4: print("rows = ",rows)
             pass
         return (rows,titles)
+
+
+    def sqlCmd(self,sql):
+        ## Perform an arbitrary SQL command
+        if self.debug > 0: print(f'Entering sqlCmd({sql})')
+        result = self.cur.execute(sql)
+        rows = result.fetchall()   # <-- This is a list of db rows in the result set
+        if self.debug > 0:
+            print("#rows = ",len(rows))
+            if self.debug > 4: print("rows = ",rows)
+            pass
+        return (rows)
 
 
 
@@ -294,11 +376,11 @@ class pmon:
         pass
 
 
-    def loadTaskData(self):
+    def loadTaskData(self,where=''):
         # Load in full task summary data
         if self.debug>0:print('Entering loadTaskData')
 
-        sql = ("select * from summary")
+        sql = (f"select * from summary {where}")
 
         if self.debug > 0: print('sql = ',sql)
         (self.trows,self.ttitles) = self.stdQuery(sql)
@@ -357,15 +439,67 @@ class pmon:
         return
 
     def taskSum(self,runnum=None,tasknum=None,taskname=None,status=None,limit=None):
-        # Print out a full task summary for this workflow
-        if self.debug>0:print("Entering taskSum")
+        # Prepare and print out a summary of all (selected) tasks for this workflow
+        if self.debug>0:
+            print("Entering taskSum")
+            print(f'runnum={runnum},tasknum={tasknum},taskname={taskname},status={status},limit={limit}')
+
+        # Prepare 'where' clause for sql
+        where = ''
+        whereList = []
+        if runnum!=None:whereList.append(f' runnum={runnum} ')
+        if tasknum!= None:whereList.append(f' tasknum={tasknum} ')
+        if taskname!=None:whereList.append(f' function="{taskname}" ')
+        if status!=None:whereList.append(f' status="{status}" ')
+        if len(whereList)>0:where = 'where '+' and '.join(whereList)
+        print(f'where = {where}')
+        
+        # Fetch data from DB
+        self.loadTaskData(where)
+        rows = self.trows
+        titles = self.ttitles
+        
+        # Check if output is limited
+        last=len(rows)
+        if limit!=None and limit!=0: last=limit
+        
+        # Pretty print
+        print(f'MOST RECENT STATUS FOR SELECTED TASKS (# tasks selected = {len(rows)}, print limit = {last})')
+        print(tabulate(rows[0:last],headers=titles,tablefmt=tblfmt))
         return
 
+    
     def taskHis(self,runnum=None,tasknum=None,taskname=None,status=None,limit=None):
-        # Print out the full history for specified task(s) in this workflow
-        if self.debug>0:print("Entering taskHis")
+        # Print out the full history for a single, specified task in this workflow
+        if self.debug>0:
+            print("Entering taskHis")
+            print(f'runnum={runnum},tasknum={tasknum},taskname={taskname},status={status},limit={limit}')
+
+        if tasknum==None:
+            print(f'%ERROR: you must specify a task number for this report')
+            return
+
+        # Prepare 'where' clause for sql
+        morewhere = ''
+        whereList = [' ']
+        if runnum!=None:whereList.append(f' rv.runnum={runnum} ')
+        if status!=None:whereList.append(f' status="{status}" ')
+        if len(whereList)>0:morewhere = ' and '.join(whereList)
+        
+        # Fetch data from DB
+        sql = taskHistoryQuery.replace('#tasknum#',f'{tasknum}')
+        sql = sql.replace('#morewhere#',morewhere)
+        (rows,titles) = self.stdQuery(sql)
+        
+        # Pretty print
+        print(f'Full history of task {tasknum}, containing {len(rows)} state changes')
+        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
 
+    def makePlots(self):
+        ## Produce various plots
+        if self.debug>0:print('Entering plots()')
+        return
     
 
 
@@ -394,6 +528,17 @@ class pmon:
         if self.debug>0:print(f'Entering taskHistory()')
         if runnum!=None: self.printWorkflowSummary(runnum)
         self.taskHis(runnum=runnum,tasknum=tasknum,status=status,limit=limit)
+        self.taskStatusMatrix(runnum=runnum)
+        return
+
+    def nctaskSummary(self):
+        ## This produces a list of the most recently invoked non-cached tasks
+        if self.debug>0:print(f'Entering nctaskSummary()')
+        #        if runnum!=None: self.printWorkflowSummary(runnum)
+        sql = 'select * from nctaskview'
+        (rows,titles) = self.stdQuery(sql)
+        print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
+        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
 
     def runHistory(self):
@@ -407,10 +552,21 @@ class pmon:
         print(tabulate(rows,headers=self.wtitles, tablefmt=tblfmt))
         return
 
+    def recentStatus(self,limit=50):
+        ## Display the most recent status updates
+        if self.debug>0:print('Entering recentStatus()')
+        # Fetch data from DB
+        sql = recentStatusQuery.replace('#limit#',str(limit))
+        (rows,titles) = self.stdQuery(sql)
+        # Pretty print
+        print(f'Recent workflow activity')
+        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        return
 
     def plots(self):
         ## Produce various performance plots for this workflow **EXPERIMENTAL**
         if self.debug>0:print(f'Entering plots()')
+        self.makePlots()
         return
 
     
@@ -426,20 +582,22 @@ class pmon:
 if __name__ == '__main__':
 
 
-    reportTypes = ['shortSummary','taskSummary','taskHistory','runHistory','plot']
+    reportTypes = ['shortSummary','taskSummary','taskHistory','nctaskSummary','runHistory','recentStatus','plots']
 
     ## Parse command line arguments
-    parser = argparse.ArgumentParser(description='A simple Parsl status reporter.  Available reports include:'+str(reportTypes))
+    parser = argparse.ArgumentParser(description='A simple Parsl status reporter. Available reports include:'+str(reportTypes)+'.',
+                                     usage='$ python wstat [options] {report type}',
+                                     epilog='Note that not all options are meaningful for all report types, and some options are required for certain reports.')
     parser.add_argument('reportType',help='Type of report to display (default=%(default)s)',nargs='?',default='shortSummary')
     parser.add_argument('-f','--file',default='./monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
-    parser.add_argument('-t','--tasknum',default=None,help="specify tasknum")
+    parser.add_argument('-t','--tasknum',default=None,help="specify tasknum (required for taskHistory)")
     parser.add_argument('-n','--taskName',default=None,help="specify task_func_name")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
-    parser.add_argument('-l','--taskLimit',type=int,default=0,help="limit output to N tasks (default is no limit)")
+    parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit output to N tasks (default is no limit)")
+    parser.add_argument('-L','--statusLimit',type=int,default=20,help="limit status lines to N (default = %(default)s)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
-
 
     parser.add_argument('-v','--version', action='version', version=__version__)
 
@@ -489,11 +647,6 @@ if __name__ == '__main__':
         print('%ERROR: Requested run number, ',args.runnum,' is out of range (',m.runmin,'-',m.runmax,')')
         sys.exit(1)
 
-    ## Set task output limit?
-    if args.taskLimit > 0:
-        m.taskLimit = args.taskLimit
-        pass
-        
     ## Print out requested report
     if args.reportType == 'shortSummary':
         m.shortSummary(runnum=args.runnum)
@@ -503,10 +656,14 @@ if __name__ == '__main__':
     elif args.reportType == 'taskHistory':
         m.taskHistory(runnum=args.runnum,tasknum=args.tasknum,status=args.taskStatus,
                       taskname=args.taskName,limit=args.taskLimit)
+    elif args.reportType == 'nctaskSummary':
+        m.nctaskSummary()
     elif args.reportType == 'runHistory':
         m.runHistory()
-    elif args.reportType == 'plot':
-        m.plot()
+    elif args.reportType == 'recentStatus':
+        m.recentStatus(args.statusLimit)
+    elif args.reportType == 'plots':
+        m.plots()
     else:
         print("%ERROR: Unrecognized reportType: ",args.reportType)
         print("Must be one of: ",reportTypes)
@@ -574,529 +731,6 @@ if __name__ == '__main__':
 ########################################################################################################
 
 """
-class pmon:
-    ### class pmon - interpret Parsl monitoring database
-    def __init__(self,dbfile='monitoring.db',debug=0):
-        ## Instance variables
-        self.dbfile = dbfile
-        self.debug = debug # [0=none,1=short,2=more,3=even more,5=lengthy tables]
-
-        ## sqlite3 database connection and cursor
-        self.con = sqlite3.connect(self.dbfile,
-                                   timeout=30,             ## time limit if DB locked
-                                   detect_types=sqlite3.PARSE_DECLTYPES |
-                                   sqlite3.PARSE_COLNAMES) ## special connect to sqlite3 file
-#        self.con = sqlite3.connect(self.dbfile)           ## vanilla connect to sqlite3 file
-        self.con.row_factory = sqlite3.Row                 ## optimize output format
-        self.cur = self.con.cursor()                       ## create a 'cursor'
-
-        ## List of all task stati defined by Parsl
-        self.statList = ['pending','launched','joining','running','running_ended','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
-        ## This template contains all known parsl task states
-        #OBS#self.statTemplate = {'pending':0,'launched':0,'running':0,'exec_done':0,'memo_done':0,'failed':0,'dep_fail':0,'fail_retryable':0,'unsched':0,'unknown':0}
-        self.statTemplate = {}
-        ## Build initial task state tally dictionary
-        for state in self.statList:
-            self.statTemplate[state] = 0
-            pass
-        
-        self.statPresets = {
-            'notdone':['pending','launched','running'],
-            'runz':['running','exec_done','memo_done','failed','dep_fail','fail_retryable'],
-            'dead':['exec_done','memo_done','failed','dep_fail','fail_retryable'],
-            'oddball':['unsched','unknown']
-        }
-
-        ## Read in the workflow (summary) table
-        self.wrows = None
-        self.wtitles = None
-        self.runid2num = None
-        self.runnum2id = None
-        self.numRuns = 0
-        self.runmin = 999999999
-        self.runmax = -1
-        self.readWorkflowTable()
-
-        ## pTasks contains selected task information filled by deepTaskSummary()
-        self.pTitles = {'task_id':0,'task_name':1,'run_num':2,'status':3,'hostname':4,'try':5,
-                        '#fails':6,'submitTime':7,'startTime':8,'endTime':9,'runTime':10,'stdout':11}
-        self.pTasks = []
-        self.pTasksFilled = False
-        self.taskLimit=0   # Set to non-zero to limit tasks processed for pTasks
-
-        ## nodeUsage is a list of nodes currently in use and the
-        ## number of tasks running on them.  {nodeID:#runningTasks}
-        self.nodeUsage = {}
-        
-        return
-
-
-    def __del__(self):
-        ## Class destructor 
-        self.con.close()
-        return
-
-    ####################
-    ## Parsl time stamp convenience functions (Parsl times are strings)
-    ####################
-    def stripms(self,intime):
-        ## Trivial function to strip off millisec from Parsl time string
-        if intime == None: return None
-        return datetime.datetime.strptime(str(intime),'%Y-%m-%d %H:%M:%S.%f').strftime('%Y-%m-%d %H:%M:%S')
-    
-    def makedt(self,intime):
-        ## Trivial function to return a python datetime object from Parsl time string
-        return datetime.datetime.strptime(str(intime),'%Y-%m-%d %H:%M:%S.%f')
-    
-    def timeDiff(self,start,end):
-        ## Calculate difference in two Parsl times from monitoringDB
-        if start == None or end == None: return None
-        diff = self.makedt(end) - self.makedt(start)
-        return diff
-
-
-    ####################
-    ## Simple sqlite utilities
-    ####################
-    def getTableList(self):
-        ## Fetch list of all db tables and views
-        ## Parsl monitoring.db currently contains four tables: resource, status, task, workflow
-        self.cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        rawTableList = self.cur.fetchall()
-        tableList = []
-        for table in rawTableList:
-            tableList.append(table[0])
-            pass
-        return tableList
-
-    def getViewList(self):
-        self.cur.execute("SELECT name FROM sqlite_master WHERE type='view';")
-        rawViewList = self.cur.fetchall()
-        viewList = []
-        print(f'rawViewList:\n{rawViewList}')
-        for view in rawViewList:
-            viewList.append(view[0])
-            pass
-        return viewList
-
-    def getTableSchema(self,table='all'):
-        ## Fetch the schema for one or more db tables
-        if table == 'all':
-            sql = ("select sql "
-                   "from sqlite_master "
-                   "where type = 'table' ;")
-        else:
-            sql = ("select sql "
-                   "from sqlite_master "
-                   "where type = 'table' and name = '"+table+"';")
-            pass
-        self.cur.execute(sql)
-        schemas = self.cur.fetchall()
-        return schemas
-
-
-    def getViewSchema(self,view='all'):
-        if view == 'all':
-            sql = ("select sql "
-                   "from sqlite_master "
-                   "where type = 'view' ;")
-        else:
-            sql = ("select sql "
-                   "from sqlite_master "
-                   "where type = 'view' and name = '"+view+"';")
-            pass
-        self.cur.execute(sql)
-        schemas = self.cur.fetchall()
-        return schemas
-
-    def printRow(self,titles,row):
-        ## Pretty print one db row with associated column names
-        for title,col in zip(titles,row):
-            print(title[0],": ",col)
-            pass
-        pass
-        return
-
-
-
-    def dumpTable(self,titles,rowz):
-        ## Pretty print all db rows with column names
-        print("\ndumpTable:\n==========")
-        print("titles = ",titles)
-        print("Table contains ",len(rowz)," rows")
-        # for row in rowz:
-        #     for key in row.keys():
-        #         print(row[key])
-        #     pass
-        print(tabulate(rowz,headers=titles,tablefmt=tblfmt))
-        print("-------------end of dump--------------")
-        return
-    
-
-    def stdQuery(self,sql):
-        if self.debug > 0: print("Entering stdQuery, sql = ",sql)
-        ## Perform a db query, fetch all results and column headers
-        result = self.cur.execute(sql)
-        rows = result.fetchall()   # <-- This is a list of db rows in the result set
-        ## This will generate a list of column headings (titles) for the result set
-        titlez = result.description
-        ## Convert silly 7-tuple title into a single useful value
-        titles = []
-        for title in titlez:
-            titles.append(title[0])
-            pass
-        if self.debug > 0:
-            print("titles = ",titles)
-            print("#rows = ",len(rows))
-            if self.debug > 4: print("rows = ",rows)
-            pass
-        return (rows,titles)
-
-
-
-    ####################
-    ## Parsl monitoring analysis functions
-    ####################
-    def readWorkflowTable(self,sql="select * from workflow order by time_began asc"):
-        ## Extract all rows from 'workflow' table in monitoring.db
-        ##  called from constructor to initialize workflow data in self.wrows
-        #
-        if self.debug > 0:print("Entering readWorkflowTable, sql = ",sql)
-        ## workflow table:  ['run_id', 'workflow_name', 'workflow_version', 'time_began', 
-        ##                   'time_completed', 'host', 'user', 'rundir', 
-        ##                   'tasks_failed_count', 'tasks_completed_count']
-        ##
-        ## This alternate query returns a list of one 'row' containing the most recent entry
-        #sql = "select * from workflow order by time_began desc limit 1"
-        ##
-        (self.wrows,self.wtitles) = self.stdQuery(sql)
-        self.runid2num = {}
-        self.runnum2id = {}
-        for row in self.wrows:
-            runID = row['run_id']
-            runNum = os.path.basename(row['rundir'])   ## "runNum" is defined by the runinfo/NNN directory
-            self.runid2num[runID] = runNum
-            self.runnum2id[int(runNum)] = runID
-            if int(runNum) > self.runmax: self.runmax = int(runNum)
-            if int(runNum) < self.runmin: self.runmin = int(runNum)
-            pass
-        self.numRuns = len(self.wrows)
-        if self.debug > 1:
-            print('numRuns   = ',self.numRuns)
-            print('runid2num = ',self.runid2num)
-            print('runnum2id = ',self.runnum2id)
-            print('runmin    = ',self.runmin)
-            print('runmax    = ',self.runmax)
-            pass
-        return
-
-
-    def selectRunID(self,runnum=None):
-        ## Select the 'workflow' table row based on the requested
-        ## runNumber (not to be confused with the many digit, hex
-        ## "run_id")
-        if self.debug>0: print("Entering selectRunID, runnum=",runnum)
-        
-        if runnum == None:         # Select most recent workflow run
-            #print("runnum = None, returning -1")
-            return -1
-        else:
-            for rdx in list(range(len(self.wrows))):
-                if self.wrows[rdx]['run_id'] == self.runnum2id[runnum]:
-                    #print("runnum = ",runnum,', workflow table row = ',rdx)
-                    return rdx
-                pass
-            assert False,"Help!"
-            pass
-        pass
-
-
-    def printWorkflowSummary(self,runnum=None):
-        ## Summarize current state of workflow
-        repDate = datetime.datetime.now()
-        titles = self.wtitles
-
-        ##  Select desired workflow 'run'
-        nRuns = self.numRuns
-        rowindex = self.selectRunID(runnum)
-        row = self.wrows[rowindex]
-
-        runNum = os.path.basename(row['rundir'])
-        runNumTxt = runNum
-        irunNum = int(runNum)
-        if irunNum == int(self.runmax):runNumTxt += '    <<-most current run->>'
-        runID = row['run_id']
-        exeDir = os.path.dirname(os.path.dirname(row['rundir']))
-        completedTasks = row['tasks_completed_count']+row['tasks_failed_count']
-
-        ## Run times
-        runStart = row['time_began']
-        if runStart == None:
-            runStart = '*pending*'
-        else:
-            runStart = self.stripms(runStart)
-            pass
-
-        runEnd   = row['time_completed']
-        if runEnd == None:
-            runEnd = '*pending*'
-        else:
-            runEnd = self.stripms(runEnd)
-            pass
-
-        ## Compute run duration
-        if row['time_began'] != None and row['time_completed'] != None :
-            duration = self.timeDiff(row['time_began'],row['time_completed'])
-        else:
-            duration = '*pending*'
-            pass
-
-        ##   Print SUMMARIES
-        print('Workflow summary at',repDate,'\n==============================================')
-        wSummaryList = []
-        wSummaryList.append(['workflow name',row['workflow_name']])
-        wSummaryList.append(['run',runNumTxt ])
-        wSummaryList.append(['run start',runStart ])
-        wSummaryList.append(['run end ',runEnd ])
-        wSummaryList.append(['run duration ', duration])
-        wSummaryList.append(['tasks completed',completedTasks ])
-        wSummaryList.append(['tasks completed: success', row['tasks_completed_count']])
-        wSummaryList.append(['tasks completed: failed',row['tasks_failed_count'] ])
-        wSummaryList.append(['----------','----------'])
-        #wSummaryList.append(['Report Date/Time ',repDate ])
-        wSummaryList.append(['workflow user', row['user']+'@'+row['host']])
-        wSummaryList.append(['workflow rundir',exeDir])
-        wSummaryList.append(['MonitorDB',self.dbfile])
-        #wSummaryList.append(['workflow node', row['host']])
-        print(tabulate(wSummaryList, tablefmt=tblfmt))
-        return
-
-
-
-    def getTaskData(self,runnum=None,opt=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None,taskName=None):
-        ## The main purpose of this function is to fill the pTask and nodeUsage data structures
-        ##   repType = report type, either "Summary" or "History"
-        ##   printSummary=True to print (a potentially lengthy) task summary table
-        
-        if self.debug > 0 : print("Entering getTaskData(runnum=",runnum,", opt=",opt,", repType=",repType,", printSummary=",printSummary,", taskID=",taskID," taskStatus=",taskStatus,")")
-        
-        ##  Select requested initial Run in workflow table
-        rowindex = self.selectRunID(runnum)
-        wrow = self.wrows[rowindex]
-        if runnum == None: runnum = int(self.runid2num[wrow['run_id']])  # most recent run
-        if self.debug > 0: print('--> run_id = ',wrow['run_id'])
-
-        ## Create DB query for task data
-        if repType == "Summary" :
-            ## Fetch current state of each task
-            #where = "where s.task_status_name!='memo_done' "
-            where = ""
-            if taskID != None:
-                where += "t.task_id='"+str(taskID)+"' "
-                pass
-            if taskName != None:
-                if len(where) > 0: where += " and "
-                where += " t.task_func_name='"+str(taskName)+"' "
-            if len(where) > 0: where = " where "+where
-            
-            ## The following sql is my current magnum opus in the field of databasery ;)
-            #############Original sql as of 10/14/2020##################
-            sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
-                   "max(s.timestamp),s.task_status_name,"
-                   "y.hostname,y.try_id,y.task_try_time_launched,y.task_try_time_running,y.task_try_time_returned "
-                   "from task t "
-                   "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
-                   "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
-                   +where+
-                   "group by t.task_id "
-                   "order by t.task_id asc ")
-            ### EXPERIMENTAL ###
-            # sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
-            #        "max(s.timestamp),s.task_status_name,"
-            #        "y.hostname,y.try_id,y.task_try_time_launched,y.task_try_time_running,y.task_try_time_returned "
-            #        "from task t "
-            #        "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
-            #        "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
-            #        +where+
-            #        "group by t.task_hashsum "
-            #        "order by t.task_id asc")
-        elif repType == "History" :
-            ## Fetch full history of each task
-            where = " "
-            if taskID != None:
-                where += "where t.task_id='"+str(taskID)+"' "
-                pass
-            sql = ("select t.run_id,t.task_id,t.task_hashsum,t.task_fail_count,t.task_func_name,t.task_stdout,"
-                   "s.timestamp,s.task_status_name,"
-                   "y.hostname,y.try_id,y.task_try_time_launched,y.task_try_time_running,y.task_try_time_returned "
-                   "from task t "
-                   "join try y on (t.run_id=y.run_id AND t.task_id=y.task_id) "
-                   "join status s on (y.run_id=s.run_id AND y.task_id=s.task_id AND y.try_id=s.try_id) "
-                   +where+
-                   "order by t.task_id,s.timestamp asc")
-            pass
-        if self.debug > 0 : print("getTaskData: sql = ",sql)
-
-        ## Perform DB query
-        (tRowz,tTitles) = self.stdQuery(sql)
-        if self.debug > 1:
-            self.dumpTable(tTitles,tRowz)
-            pass
-
-        
-        ## Look at every task...
-        rCount = 0
-        grCount = 0   # 'good' row count
-        nRunning = 0
-        for row in tRowz:
-            rCount += 1
-
-            if taskStatus != None:
-                ## Select tasks based on status or a collection of stati
-                keep = False
-                if taskStatus in list(self.statPresets.keys()):
-                    for prekey in self.statPresets:
-                        if taskStatus == prekey and row['task_status_name'] in self.statPresets[prekey]:
-                            keep = True
-                            break
-                        pass
-                    pass
-                elif taskStatus in row['task_status_name']:
-                    keep = True
-                    pass
-                if not keep: continue
-                pass
-            grCount += 1
-
-
-            if self.debug > 1:
-                print('rCount,task_stdout = ',rCount,row['task_stdout'])
-                print(row)
-                pass
-
-            ## Prepare stdDir, directory containing stderr and stdout
-            stdDir = row['task_stdout']
-            if stdDir == None:
-                stdDir = "None"
-            else:
-                stdDir = os.path.splitext(stdDir)[0]
-                pass
-                      
-            ## Fill Task data list
-            pTask = [row['task_id'],
-                     row['task_func_name'],
-                     self.runid2num[row['run_id']],
-                     row['task_status_name'],
-                     row['hostname'],
-                     row['try_id'],
-                     row['task_fail_count'],
-                     self.stripms(row['task_try_time_launched']),
-                     self.stripms(row['task_try_time_running']),
-                     self.stripms(row['task_try_time_returned']),
-                     self.timeDiff(row['task_try_time_running'],row['task_try_time_returned']),
-                     stdDir
-                     ]
-                                  
-
-            ## Fill nodeUsage dict (only for running tasks)
-            if row['task_status_name'] == "running":
-                nRunning += 1
-                if row['hostname'] == None:
-                    hn = 'unknown'
-                else:
-                    hn = row['hostname']
-                    pass
-                if hn not in self.nodeUsage:
-                    self.nodeUsage[hn] = 1
-                else:
-                    self.nodeUsage[hn] += 1
-                    pass
-                pass
-
-            ## Finally, add this task's data to the master summary list
-            self.pTasks.append(pTask)
-            
-            ## (Possibly) limit # of tasks processed -- most a development/debugging feature
-            if self.taskLimit > 0 and grCount >= self.taskLimit: break
-            pass
-        
-        ## Print out full task table
-        if printSummary: print(tabulate(self.pTasks,headers=list(self.pTitles.keys()),tablefmt=tblfmt))
-        self.pTasksFilled = True
-
-        ## Print out node usage summary
-        if len(self.nodeUsage) > 0:
-            print("\nNode usage summary:")
-            headers = ['Node', '#running']
-            print(tabulate(sorted(self.nodeUsage.items()), headers=headers, tablefmt=tblfmt))
-            print('  Number of active nodes = ',len(self.nodeUsage))
-            print('  Number of running tasks = ',nRunning)
-        return
-
-    #########################################################################################
-    #########################################################################################
-    #########################################################################################
-    #########################################################################################
-    #########################################################################################
-
-    def printStatusMatrix(self,runnum=None):
-        ## Confirm pTasks[] has been filled
-        if not self.pTasksFilled: self.getTaskData(runnum=runnum,printSummary=False)
-
-        ## if no tasks defined, bail
-        if len(self.pTasks) < 1:
-            print("Nothing to do: pTasks is empty!")
-            return
-        else:
-            #print("There are ",len(self.pTasks)," tasks in pTasks.")
-            pass
-
-
-        ## Tally status for each task type
-        ##  Store -> taskStats{}:
-        ##     taskStats{'taskname1':{#status1:num1,#status2:num2,...},...}
-        statList = self.statTemplate.keys()   # list of all status names
-        taskStats = {}   # {'taskname':{statTemplate}}
-        tNameIndx = self.pTitles['task_name']
-        tStatIndx = self.pTitles['status']
-        tRunIndx  = self.pTitles['runTime']
-        nTaskTypes = 0
-        nTasks = 0
-        statTotals=dict(self.statTemplate)
-        statTotals['TOTAL'] = 0
-        for task in self.pTasks:
-            nTasks += 1
-            tName = task[tNameIndx]
-            tStat = task[tStatIndx]
-            if tName not in taskStats.keys():
-                nTaskTypes += 1
-                taskStats[tName] = dict(self.statTemplate)
-                taskStats[tName]['TOTAL'] = 0
-                pass
-            taskStats[tName][tStat] += 1
-            taskStats[tName]['TOTAL'] += 1
-            statTotals[tStat] += 1
-            statTotals['TOTAL'] += 1
-            pass
-        taskStats['TOTAL'] = dict(statTotals)
-        
-        ## Then convert into a Pandas dataframe
-        ##    [Defining a pandas dataframe]
-        ##    df = pandas.DataFrame(columns=['a','b','c','d'], index=['x','y','z'])
-        ##    df.loc['y'] = pandas.Series({'a':1, 'b':5, 'c':2, 'd':3})
-        pTaskStats = pd.DataFrame(columns=list(self.statTemplate.keys())+['TOTAL'], index=taskStats.keys())
-        for task in taskStats:
-            pTaskStats.loc[task] = pd.Series(taskStats[task])
-            pass
-        #print('\nTask status matrix: \n',pTaskStats,'\n\n')    ## native DataFrame formatted output
-        print('\nTask status matrix:')
-        print(tabulate(pTaskStats,headers='keys',tablefmt=tblfmt))
-        return
-
-
-
-
-    
     def plotStats(self,runnum=None):
         ## plot statistics for most current parsl run
         #
@@ -1255,86 +889,4 @@ class pmon:
 
     
     
-
-    ####################
-    ## Driver functions
-    ####################
-
-    def taskSummary(self,runnum=None,repType="Summary",printSummary=True,taskID=None,taskStatus=None,taskName=None):
-        ## This is the new standard summary: workflow summary + summary of tasks in current run
-        self.printWorkflowSummary(runnum)
-        self.getTaskData(repType=repType,printSummary=printSummary,taskID=taskID,taskStatus=taskStatus,taskName=taskName)
-        self.printStatusMatrix(runnum=runnum)
-        return
-
-
-    def shortSummary(self,runnum=None):
-        ## This is the short summary:
-        self.printWorkflowSummary(runnum)
-        self.printStatusMatrix(runnum=runnum)
-        ##self.printTaskSummary(runnum,opt='short')
-        return
-
-    def plot(self,runnum=None):
-        self.printWorkflowSummary()
-        #self.getTaskData(runnum=runnum,dig=True,printSummary=False)
-        self.printStatusMatrix(runnum=runnum)
-        self.plotStats(runnum=runnum)
-        return
-
-    def runHistory(self):
-        ## This is the runHistory: details for each workflow 'run'
-        sql = ('select workflow_name,user,host,time_began,time_completed,'
-               'tasks_completed_count,tasks_failed_count,rundir '
-               'from workflow '
-               'order by time_began asc')
-        (wrows,wtitles) = self.stdQuery(sql)
-        if self.debug > 1:
-            print('wtitles = ',wtitles)
-            print('Number of runs = len(wrows) = ',len(wrows))
-            for wrow in wrows :
-                print(list(wrow))
-                pass
-            pass
-        
-        ## Adjust the result set for printing
-        for i in list(range(len(wtitles))):
-            if wtitles[i] == 'tasks_completed_count':wtitles[i] = '#tasks_good'
-            if wtitles[i] == 'tasks_failed_count':wtitles[i] = '#tasks_bad'
-            pass
-        rows = []
-        wtitles.insert(0,"RunNum")
-        wtitles.insert(6,"RunDuration")
-        for wrow in wrows:
-            run_duration = self.timeDiff(wrow['time_began'],wrow['time_completed'])
-            row = list(wrow)
-            row.insert(5,run_duration)
-            row[3] = self.stripms(row[3])
-            row[4] = self.stripms(row[4])
-            if run_duration is None:
-                row[4] = '-> incomplete <-'
-            else:
-                row[5] = datetime.timedelta(days=run_duration.days,seconds=run_duration.seconds)
-                pass
-            row.insert(0,os.path.basename(row[8]))
-            rows.append(row)
-        ## Print the report
-        print(tabulate(rows,headers=wtitles, tablefmt=tblfmt))
-        return
-
-
-    def runNums(self):
-        ## Simply print a table of the serial run number vs Parsl (lengthy) run_id
-        print("Sequential (time-ordered) Run Numbers vs their corresponding Parsl run_id's")
-        rlist = self.runid2num.keys()
-        rtable=[]
-        for run in rlist:
-            if self.debug > 0: print(self.runid2num[run],run)
-            rtable.append([self.runid2num[run],run])
-            pass
-        #print(self.runnum2id)
-        #print(self.runid2num)
-        print(tabulate(rtable,headers=["RunNum","parsl run_id"],tablefmt=tblfmt))
-        return
-
 """
