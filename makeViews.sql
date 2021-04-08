@@ -24,7 +24,7 @@ create view if not exists nctaskview as select
        t.task_id,
        t.task_func_name as function,
        t.task_fail_count as fails,
-       strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',max(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime
        from task t
@@ -42,7 +42,7 @@ create view if not exists taskview as select
        t.task_hashsum,
        t.task_func_name as function,
        t.task_fail_count as fails,
-       strftime('%Y-%m-%d %H:%M:%S',max(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
        t.task_stdout as stdout
