@@ -458,7 +458,8 @@ class pmon:
         print(tabulate(pTaskStats,headers='keys',tablefmt=tblfmt))
         return
 
-    def taskSum(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None,extendedCols=False):
+    def taskSum(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,
+                limit=None,extendedCols=False,oddball=False):
         # Prepare and print out a summary of all (selected) tasks for this workflow
         if self.debug>0:
             print("Entering taskSum")
@@ -494,9 +495,41 @@ class pmon:
         # Pretty print
         print(f'MOST RECENT STATUS FOR SELECTED TASKS (# tasks selected = {len(rows)}, print limit = {last})')
         print(tabulate(rows[0:last],headers=titles,tablefmt=tblfmt))
+
+        ## Print oddball task?
+        if oddball:
+            self.nctaskSummary()
+            self.ndtaskSummary()
         return
 
-    
+    def nctaskSummary(self):
+        ## This produces a list of the most recently invoked non-cached tasks
+        if self.debug>0:print(f'Entering nctaskSummary()')
+        #        if runnum!=None: self.printWorkflowSummary(runnum)
+        sql = 'select * from nctaskview'
+        (rows,titles) = self.stdQuery(sql)
+        if len(rows)>0:
+            print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
+            print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        else:
+            print('There are no non-cached tasks to report.')
+            pass
+        return
+
+    def ndtaskSummary(self):
+        ## This produces a list of non-dispatched cached tasks (no task_hashsum)
+        if self.debug>0:print(f'Entering ndtaskSummary()')
+        #        if runnum!=None: self.printWorkflowSummary(runnum)
+        sql = 'select * from ndtaskview'
+        (rows,titles) = self.stdQuery(sql)
+        if len(rows)>0:
+            print(f'List of {len(rows)} non-dispatched cached tasks')
+            print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        else:
+            print('There are no non-dispatched tasks to report.')
+        return
+
+   
     def taskHis(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None):
         # Print out the full history for a single, specified task in this workflow
         if self.debug>0:
@@ -544,13 +577,15 @@ class pmon:
         ##self.printTaskSummary(runnum,opt='short')
         return
 
-    def taskSummary(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None,extendedCols=False):
+    def taskSummary(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,
+                    limit=None,extendedCols=False,oddball=False):
         ## This is a summary of all cached tasks in the workflow.
         if self.debug>0:print(f'Entering taskSummary(runnum={runnum},tasknum={tasknum},'
                               f'taskid={taskid},taskname={taskname},status={status},'
                               f'limit={limit},extendedCols={extendedCols})')
         self.printWorkflowSummary(runnum)
-        self.taskSum(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,limit=limit,extendedCols=extendedCols)
+        self.taskSum(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,
+                     limit=limit,extendedCols=extendedCols,oddball=oddball)
         self.taskStatusMatrix(runnum=runnum)
         return
 
@@ -562,15 +597,6 @@ class pmon:
         self.taskStatusMatrix(runnum=runnum)
         return
 
-    def nctaskSummary(self):
-        ## This produces a list of the most recently invoked non-cached tasks
-        if self.debug>0:print(f'Entering nctaskSummary()')
-        #        if runnum!=None: self.printWorkflowSummary(runnum)
-        sql = 'select * from nctaskview'
-        (rows,titles) = self.stdQuery(sql)
-        print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
-        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
-        return
 
     def runHistory(self):
         ## This is the runHistory: details for each workflow 'run'
@@ -625,6 +651,7 @@ if __name__ == '__main__':
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
     parser.add_argument('-t','--tasknum',default=None,help="specify tasknum (required for taskHistory)")
     parser.add_argument('-T','--taskID',default=None,help="specify taskID")
+    parser.add_argument('-o','--oddballTasks',action='store_true',default=False,help="include non-cached/non-dispatched tasks")
     parser.add_argument('-n','--taskName',default=None,help="specify task_func_name")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
     parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit output to N tasks (default is no limit)")
@@ -691,7 +718,8 @@ if __name__ == '__main__':
         m.shortSummary(runnum=args.runnum)
     elif args.reportType == 'taskSummary':
         m.taskSummary(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
-                      taskname=args.taskName,limit=args.taskLimit,extendedCols=args.extendedCols)
+                      taskname=args.taskName,limit=args.taskLimit,
+                      extendedCols=args.extendedCols,oddball=args.oddballTasks)
     elif args.reportType == 'taskHistory':
         m.taskHistory(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
                       taskname=args.taskName,limit=args.taskLimit)
