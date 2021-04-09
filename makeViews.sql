@@ -24,13 +24,38 @@ create view if not exists nctaskview as select
        t.task_id,
        t.task_func_name as function,
        t.task_fail_count as fails,
-       strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
-       time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime
+       time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
+       t.task_memoize as cached,
+       y.task_joins as joins,
+       t.task_depends as depends
        from task t
+       join try y on (rv.run_id=y.run_id and t.task_id=y.task_id)
        join runview rv on (t.run_id=rv.run_id)
        where (t.task_hashsum is null and task_memoize=0)
-       group by t.task_func_name;
+       group by t.task_func_name
+       order by t.task_memoize,t.task_id;
+
+
+/* create a view of non-dispatched cached tasks (not yet achieved "pending" state) */
+create view if not exists ndtaskview as select
+       rv.runnum,
+       t.task_id,
+       t.task_func_name as function,
+       t.task_fail_count as fails,
+       strftime('%Y-%m-%d %H:%M:%S',(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
+       time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
+       t.task_memoize as cached,
+       y.task_joins as joins,
+       t.task_depends as depends
+       from task t
+       join try y on (rv.run_id=y.run_id and t.task_id=y.task_id)
+       join runview rv on (t.run_id=rv.run_id)
+       where (t.task_hashsum is null and task_memoize=1)
+       group by t.task_func_name
+       order by t.task_memoize,t.task_id;
 
 
 /* create a view of all (cached) tasks with global numbering based on time of first invocation */
@@ -42,9 +67,10 @@ create view if not exists taskview as select
        t.task_hashsum,
        t.task_func_name as function,
        t.task_fail_count as fails,
-       strftime('%Y-%m-%d %H:%M:%S',max(t.task_time_invoked)) as invoked,
+       strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
+       t.task_depends as depends,
        t.task_stdout as stdout
        from task t
        join runview rv on (t.run_id=rv.run_id)
@@ -68,8 +94,10 @@ create view if not exists sumv1 as select
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_running) as start,
        time((julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as waitTime,
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_returned) as ended,
-       time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime
-
+       time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime,
+       y.task_joins,
+       tv.depends,
+       tv.stdout
        from taskview tv
        join try y on (rv.run_id=y.run_id and tv.task_id=y.task_id)
        join status s on (rv.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id)
@@ -93,8 +121,10 @@ create view if not exists sumv2 as select
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_running) as start,
        time((julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as waitTime,
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_returned) as ended,
-       time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime
-
+       time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime,
+       y.task_joins,
+       tv.depends,
+       tv.stdout
        from taskview tv
        join try y on (rv.run_id=y.run_id and tv.task_id=y.task_id)
        join status s on (rv.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id)
