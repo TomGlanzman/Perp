@@ -59,8 +59,14 @@ recentStatusQuery = ('select '+stdVariables+stdSources+
        'order by s.timestamp desc '
        'limit #limit# ')
 
+
+
+
+
+
+
 class pmon:
-    ### class pmon - interpret Parsl monitoring database
+    ### class pmon - read & interpret Parsl monitoring database
     def __init__(self,dbfile='monitoring.db',debug=0):
         ## Instance variables
         self.dbfile = dbfile
@@ -76,7 +82,7 @@ class pmon:
         self.cur = self.con.cursor()                       ## create a 'cursor'
 
         ## List of all task states defined by Parsl
-        self.statList = ['pending','launched','joining','running','running_ended','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
+        self.statList = ['pending','launched','running','joining','running_ended','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
 
         ## Build initial task state tally dictionary, {<state>:<#tasks in that state>}
         self.statTemplate = {}
@@ -86,13 +92,15 @@ class pmon:
         
         self.statPresets = {
             'notdone':['pending','launched','running'],
-            'runz':['running','running_ended','exec_done','memo_done','failed','dep_fail','fail_retryable'],
+            'runz':['running','joining','running_ended','exec_done','memo_done','failed','dep_fail','fail_retryable'],
             'dead':['exec_done','memo_done','failed','dep_fail','fail_retryable'],
             'oddball':['unsched','unknown']
         }
 
 
         ## Prepare monitoring database with needed views, if necessary
+        self.viewList = ['runview','nctaskview','ndtaskview','taskview','sumv1','sumv2','summary']
+        self.viewsUpdated = False
         self.makeViewsSQL=os.path.join(sys.path[0],'makeViews.sql')
         if not self.checkViews():
             print('%WARNING: This monitoring database does not contain the necessary "views" to continue')
@@ -115,6 +123,9 @@ class pmon:
         self.taskLimit=0   # Set to non-zero to limit tasks processed for pTasks
         self.trows = None
         self.ttitles = None
+        self.tSumCols = ['runnum','tasknum','task_id','function','status','lastUpdate','fails','try_id',
+                         'hostname','launched','start','waitTime','ended','runTime']
+        self.tSumColsExt = self.tSumCols+['depends','stdout']
 
         ## nodeUsage is a list of nodes currently in use and the
         ## number of tasks running on them.  {nodeID:#runningTasks}
@@ -136,23 +147,17 @@ class pmon:
 
     def checkViews(self):
         ## Check that this sqlite3 database file contains the needed views
-        viewList = ['runview','nctaskview','taskview','sumv1','sumv2','summary']
         views = self.getSchemaList(type='view')
         if len(views)==0:return False
-        for view in viewList:
+        for view in self.viewList:
             if view not in views:return False
         return True
     
-    def storeViews(self):
-        ## Store custom views into the monitoring.db file
-        ##   These view definitions are stored in an external file
-        if self.debug>0:print('Entering storeViews')
-        print('Attempting to add sqlite "views" to monitoring database')
-        print(f'makeViewsSQL = {self.makeViewsSQL}')
-        with open(self.makeViewsSQL,'r') as f:
+    def getSQLfromFile(self,filename):
+        ## Read text file of sql and produce clean list of individual sql commands
+        with open(filename,'r') as f:
             sql=f.read()
             pass
-
         ## Remove SQL /* comments */ from file content
         while True:
             start=sql.find('/*')
@@ -160,13 +165,31 @@ class pmon:
             if start == -1: break
             sql=sql[:start]+sql[end:]
             pass
-        
         ## Must split multiple sql commands into separate python sqlite3 calls
-        cmds = sql.split(';')
-        print(f'There were {len(cmds)} sql commands found in the file')
-        for cmd in cmds:
-            if len(cmd)>0:rows=self.sqlCmd(cmd)
+        sqlList = sql.split(';')
+        sqlList = sqlList[:-1]   # remove last (empty) element in list
+        print(f'There were {len(sqlList)} sql commands found in the file')
+        return sqlList
+    
+    def storeViews(self):
+        ## Store custom views into the monitoring.db file
+        ##   View definitions are stored in an external file
+        if self.debug>0:print('Entering storeViews')
+        print('Attempting to remove sqlite "views" in monitoring database')
+        views = self.getSchemaList(type='view')
+        for view in views:
+            if view in self.viewList:
+                sql = f'drop view {view}'
+                self.sqlCmd(sql)
+                pass
             pass
+        print('Attempting to add sqlite "views" to monitoring database')
+        print(f'makeViewsSQL = {self.makeViewsSQL}')
+        sqlList2 = self.getSQLfromFile(self.makeViewsSQL)
+        for cmd in sqlList2:
+            self.sqlCmd(cmd)
+            pass
+        self.viewsUpdated = True
         return
 
     
@@ -376,12 +399,10 @@ class pmon:
         pass
 
 
-    def loadTaskData(self,where=''):
-        # Load in full task summary data
-        if self.debug>0:print('Entering loadTaskData')
-
-        sql = (f"select * from summary {where}")
-
+    def loadTaskData(self,what='*',where=''):
+        # Load in full task summary data (default parameters => load everything)
+        if self.debug>0:print(f'Entering loadTaskData({what},{where})')
+        sql = (f"select {what} from summary {where}")
         if self.debug > 0: print('sql = ',sql)
         (self.trows,self.ttitles) = self.stdQuery(sql)
         self.sumFlag = True
@@ -401,7 +422,6 @@ class pmon:
         ## Tally status for each task type
         ##  Store -> taskStats{}:
         ##     taskStats{'taskname1':{#status1:num1,#status2:num2,...},...}
-        statList = self.statTemplate.keys()   # list of all status names
         taskStats = {}   # {'taskname':{statTemplate}}
         tNameIndx = self.ttitles.index('function')
         tStatIndx = self.ttitles.index('status')
@@ -438,24 +458,33 @@ class pmon:
         print(tabulate(pTaskStats,headers='keys',tablefmt=tblfmt))
         return
 
-    def taskSum(self,runnum=None,tasknum=None,taskname=None,status=None,limit=None):
+    def taskSum(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,
+                limit=None,extendedCols=False,oddball=False):
         # Prepare and print out a summary of all (selected) tasks for this workflow
         if self.debug>0:
             print("Entering taskSum")
-            print(f'runnum={runnum},tasknum={tasknum},taskname={taskname},status={status},limit={limit}')
+            print(f'runnum={runnum},tasknum={tasknum},taskid={taskid},taskname={taskname},'
+                  f'status={status},limit={limit},extendedCols={extendedCols}')
+            pass
 
+        # Prepare list of variables (columns) to request, regular or extended
+        what = ','.join(self.tSumCols)
+        if extendedCols:
+            what = ','.join(self.tSumColsExt)
+        if self.debug>0: print(f'what = {what}')
+        
         # Prepare 'where' clause for sql
         where = ''
         whereList = []
         if runnum!=None:whereList.append(f' runnum={runnum} ')
         if tasknum!= None:whereList.append(f' tasknum={tasknum} ')
+        if taskid!= None:whereList.append(f' task_id={taskid} ')
         if taskname!=None:whereList.append(f' function="{taskname}" ')
         if status!=None:whereList.append(f' status="{status}" ')
         if len(whereList)>0:where = 'where '+' and '.join(whereList)
-        print(f'where = {where}')
         
         # Fetch data from DB
-        self.loadTaskData(where)
+        self.loadTaskData(what=what,where=where)
         rows = self.trows
         titles = self.ttitles
         
@@ -466,15 +495,48 @@ class pmon:
         # Pretty print
         print(f'MOST RECENT STATUS FOR SELECTED TASKS (# tasks selected = {len(rows)}, print limit = {last})')
         print(tabulate(rows[0:last],headers=titles,tablefmt=tblfmt))
+
+        ## Print oddball task?
+        if oddball:
+            self.nctaskSummary()
+            self.ndtaskSummary()
         return
 
-    
-    def taskHis(self,runnum=None,tasknum=None,taskname=None,status=None,limit=None):
+    def nctaskSummary(self):
+        ## This produces a list of the most recently invoked non-cached tasks
+        if self.debug>0:print(f'Entering nctaskSummary()')
+        #        if runnum!=None: self.printWorkflowSummary(runnum)
+        sql = 'select * from nctaskview'
+        (rows,titles) = self.stdQuery(sql)
+        if len(rows)>0:
+            print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
+            print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        else:
+            print('There are no non-cached tasks to report.')
+            pass
+        return
+
+    def ndtaskSummary(self):
+        ## This produces a list of non-dispatched cached tasks (no task_hashsum)
+        if self.debug>0:print(f'Entering ndtaskSummary()')
+        #        if runnum!=None: self.printWorkflowSummary(runnum)
+        sql = 'select * from ndtaskview'
+        (rows,titles) = self.stdQuery(sql)
+        if len(rows)>0:
+            print(f'List of {len(rows)} non-dispatched cached tasks')
+            print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        else:
+            print('There are no non-dispatched tasks to report.')
+        return
+
+   
+    def taskHis(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None):
         # Print out the full history for a single, specified task in this workflow
         if self.debug>0:
             print("Entering taskHis")
-            print(f'runnum={runnum},tasknum={tasknum},taskname={taskname},status={status},limit={limit}')
-
+            print(f'runnum={runnum},tasknum={tasknum},taskid={taskid},taskname={taskname},'
+                  f'status={status},limit={limit}')
+            pass
         if tasknum==None:
             print(f'%ERROR: you must specify a task number for this report')
             return
@@ -515,31 +577,26 @@ class pmon:
         ##self.printTaskSummary(runnum,opt='short')
         return
 
-    def taskSummary(self,runnum=None,tasknum=None,taskname=None,status=None,limit=None):
+    def taskSummary(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,
+                    limit=None,extendedCols=False,oddball=False):
         ## This is a summary of all cached tasks in the workflow.
-        if self.debug>0:print(f'Entering taskSummary()')
+        if self.debug>0:print(f'Entering taskSummary(runnum={runnum},tasknum={tasknum},'
+                              f'taskid={taskid},taskname={taskname},status={status},'
+                              f'limit={limit},extendedCols={extendedCols})')
         self.printWorkflowSummary(runnum)
-        self.taskSum(runnum=runnum,tasknum=tasknum,taskname=taskname,status=status,limit=limit)
+        self.taskSum(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,
+                     limit=limit,extendedCols=extendedCols,oddball=oddball)
         self.taskStatusMatrix(runnum=runnum)
         return
 
-    def taskHistory(self,runnum=None,tasknum=None,taskname=None,status=None,limit=None):
+    def taskHistory(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None):
         ## This produces a full history for specified task(s)
         if self.debug>0:print(f'Entering taskHistory()')
         if runnum!=None: self.printWorkflowSummary(runnum)
-        self.taskHis(runnum=runnum,tasknum=tasknum,status=status,limit=limit)
+        self.taskHis(runnum=runnum,tasknum=tasknum,taskid=taskid,status=status,limit=limit)
         self.taskStatusMatrix(runnum=runnum)
         return
 
-    def nctaskSummary(self):
-        ## This produces a list of the most recently invoked non-cached tasks
-        if self.debug>0:print(f'Entering nctaskSummary()')
-        #        if runnum!=None: self.printWorkflowSummary(runnum)
-        sql = 'select * from nctaskview'
-        (rows,titles) = self.stdQuery(sql)
-        print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
-        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
-        return
 
     def runHistory(self):
         ## This is the runHistory: details for each workflow 'run'
@@ -593,10 +650,14 @@ if __name__ == '__main__':
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
     parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
     parser.add_argument('-t','--tasknum',default=None,help="specify tasknum (required for taskHistory)")
+    parser.add_argument('-T','--taskID',default=None,help="specify taskID")
+    parser.add_argument('-o','--oddballTasks',action='store_true',default=False,help="include non-cached/non-dispatched tasks")
     parser.add_argument('-n','--taskName',default=None,help="specify task_func_name")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
     parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit output to N tasks (default is no limit)")
     parser.add_argument('-L','--statusLimit',type=int,default=20,help="limit status lines to N (default = %(default)s)")
+    parser.add_argument('-x','--extendedCols',action='store_true',default=False,help="print out extended columns")
+    parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
 
     parser.add_argument('-v','--version', action='version', version=__version__)
@@ -641,6 +702,11 @@ if __name__ == '__main__':
             pass
         sys.exit()
 
+    ## Update the sqlite views in the monitoring database
+    if args.updateViews:
+        if not m.viewsUpdated: m.storeViews()
+        sys.exit()
+
         
     ## Check validity of run number
     if not args.runnum == None and (int(args.runnum) > m.runmax or int(args.runnum) < m.runmin):
@@ -651,10 +717,11 @@ if __name__ == '__main__':
     if args.reportType == 'shortSummary':
         m.shortSummary(runnum=args.runnum)
     elif args.reportType == 'taskSummary':
-        m.taskSummary(runnum=args.runnum,tasknum=args.tasknum,status=args.taskStatus,
-                      taskname=args.taskName,limit=args.taskLimit)
+        m.taskSummary(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
+                      taskname=args.taskName,limit=args.taskLimit,
+                      extendedCols=args.extendedCols,oddball=args.oddballTasks)
     elif args.reportType == 'taskHistory':
-        m.taskHistory(runnum=args.runnum,tasknum=args.tasknum,status=args.taskStatus,
+        m.taskHistory(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
                       taskname=args.taskName,limit=args.taskLimit)
     elif args.reportType == 'nctaskSummary':
         m.nctaskSummary()

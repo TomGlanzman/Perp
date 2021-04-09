@@ -2,6 +2,7 @@
 
 drop view runview;
 drop view nctaskview;
+drop view ndtaskview;
 drop view taskview;
 drop view sumv1;
 drop view sumv2;
