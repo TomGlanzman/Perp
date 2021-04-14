@@ -24,6 +24,8 @@ create view if not exists nctaskview as select
        t.task_id,
        t.task_func_name as function,
        t.task_fail_count as fails,
+       s.task_status_name as status,
+       strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as statusUpdate,
        strftime('%Y-%m-%d %H:%M:%S',(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
@@ -32,6 +34,7 @@ create view if not exists nctaskview as select
        t.task_depends as depends
        from task t
        join try y on (rv.run_id=y.run_id and t.task_id=y.task_id)
+       join status s on (y.run_id=s.run_id and y.task_id=s.task_id and y.try_id=s.try_id)
        join runview rv on (t.run_id=rv.run_id)
        where (t.task_hashsum is null and task_memoize=0)
        group by t.task_func_name
@@ -39,11 +42,14 @@ create view if not exists nctaskview as select
 
 
 /* create a view of non-dispatched cached tasks (not yet achieved "pending" state) */
+/*  NOTE: this category of tasks _may_ disappear at some point */
 create view if not exists ndtaskview as select
        rv.runnum,
        t.task_id,
        t.task_func_name as function,
        t.task_fail_count as fails,
+       s.task_status_name as status,
+       strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as statusUpdate,
        strftime('%Y-%m-%d %H:%M:%S',(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
@@ -52,6 +58,7 @@ create view if not exists ndtaskview as select
        t.task_depends as depends
        from task t
        join try y on (rv.run_id=y.run_id and t.task_id=y.task_id)
+       join status s on (y.run_id=s.run_id and y.task_id=s.task_id and y.try_id=s.try_id)
        join runview rv on (t.run_id=rv.run_id)
        where (t.task_hashsum is null and task_memoize=1)
        group by t.task_func_name

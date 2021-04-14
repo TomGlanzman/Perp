@@ -52,7 +52,8 @@ stdSources = (
     )
 
 taskHistoryQuery = ('select '+stdVariables+stdSources+
-       'where tv.tasknum=#tasknum# #morewhere# '
+#       'where tv.tasknum=#tasknum# #morewhere# '
+       'where #morewhere# '
        'order by s.timestamp asc ')
 
 recentStatusQuery = ('select '+stdVariables+stdSources+
@@ -533,23 +534,29 @@ class pmon:
     def taskHis(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None):
         # Print out the full history for a single, specified task in this workflow
         if self.debug>0:
-            print("Entering taskHis")
-            print(f'runnum={runnum},tasknum={tasknum},taskid={taskid},taskname={taskname},'
-                  f'status={status},limit={limit}')
+            print(f'Entering taskHis(runnum={runnum},tasknum={tasknum},taskid={taskid},'
+                  f'taskname={taskname},status={status},limit={limit}')
             pass
-        if tasknum==None:
-            print(f'%ERROR: you must specify a task number for this report')
-            return
+        if tasknum==None and (taskid==None or runnum==None):
+            print(f'%ERROR: you must specify either a task number or (a taskID and run number) for this report')
+            sys.exit(1)
 
         # Prepare 'where' clause for sql
         morewhere = ''
         whereList = [' ']
         if runnum!=None:whereList.append(f' rv.runnum={runnum} ')
+        if tasknum!=None:whereList.append(f' tv.tasknum={tasknum}')
+        if taskid!=None:whereList.append(f' tv.task_id={taskid}')
         if status!=None:whereList.append(f' status="{status}" ')
-        if len(whereList)>0:morewhere = ' and '.join(whereList)
-        
+
+        morewhere = whereList[0]
+        if len(whereList)>1:morewhere = ' and '.join(whereList[1:])
+
+        if self.debug>0:print(f'morewhere = {morewhere}')
+
         # Fetch data from DB
-        sql = taskHistoryQuery.replace('#tasknum#',f'{tasknum}')
+        #sql = taskHistoryQuery.replace('#tasknum#',f'{tasknum}')
+        sql = taskHistoryQuery
         sql = sql.replace('#morewhere#',morewhere)
         (rows,titles) = self.stdQuery(sql)
         
