@@ -282,9 +282,9 @@ class pmon:
 
 
 
-    ####################
+    ######################################
     ## Parsl monitoring analysis functions
-    ####################
+    ######################################
     
     def loadWorkflowTable(self):
         ## Extract all rows from 'workflow' table in monitoring.db
@@ -360,6 +360,21 @@ class pmon:
         duration = row['runElapsedTime']
         if duration == None: duration = '*pending*'
 
+        ## Task tallies for selected run
+        where = ''
+        myruns = 'all runs'
+        if rowindex>-1:
+            where = f' where runnum={runnum}'
+            myruns = f'run {runnum}'
+            pass
+        sql1 = f'select count(*) from taskview'+where
+        sql2 = f'select count(*) from ndtaskview'+where
+        sql3 = f'select count(*) from nctaskview'+where
+        nTasks = self.sqlCmd(sql1)[0][0]
+        ndTasks = self.sqlCmd(sql2)[0][0]
+        ncTasks = self.sqlCmd(sql3)[0][0]
+
+        
         ## Print workflow run summary
         print('Workflow summary at',repDate,'\n==============================================')
         wSummaryList = []
@@ -372,6 +387,11 @@ class pmon:
         wSummaryList.append(['tasks completed',completedTasks ])
         wSummaryList.append(['tasks completed: success', row['completed_count']])
         wSummaryList.append(['tasks completed: failed',row['failed_count'] ])
+        wSummaryList.append(['----------','----------'])
+        wSummaryList.append([f'summary of {myruns}',''])
+        wSummaryList.append(['cached tasks ',nTasks])
+        wSummaryList.append(['non-dispatched cached tasks ',ndTasks])
+        wSummaryList.append(['non-cached tasks ',ncTasks])
         wSummaryList.append(['----------','----------'])
         wSummaryList.append(['workflow user', row['user']+'@'+row['host']])
         wSummaryList.append(['workflow rundir',exeDir])
@@ -499,15 +519,17 @@ class pmon:
 
         ## Print oddball task?
         if oddball:
-            self.nctaskSummary()
-            self.ndtaskSummary()
+            self.ndtaskSummary(runnum=runnum)
+            self.nctaskSummary(runnum=runnum)
         return
 
-    def nctaskSummary(self):
+    def nctaskSummary(self,runnum=None):
         ## This produces a list of the most recently invoked non-cached tasks
         if self.debug>0:print(f'Entering nctaskSummary()')
-        #        if runnum!=None: self.printWorkflowSummary(runnum)
-        sql = 'select * from nctaskview'
+        where = ''
+        if runnum!=None:
+            where = f' where runnum={runnum}'
+        sql = 'select * from nctaskview'+where
         (rows,titles) = self.stdQuery(sql)
         if len(rows)>0:
             print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
@@ -517,11 +539,13 @@ class pmon:
             pass
         return
 
-    def ndtaskSummary(self):
+    def ndtaskSummary(self,runnum=None):
         ## This produces a list of non-dispatched cached tasks (no task_hashsum)
         if self.debug>0:print(f'Entering ndtaskSummary()')
-        #        if runnum!=None: self.printWorkflowSummary(runnum)
-        sql = 'select * from ndtaskview'
+        where = ''
+        if runnum!=None:
+            where = f' where runnum={runnum}'
+        sql = 'select * from ndtaskview'+where
         (rows,titles) = self.stdQuery(sql)
         if len(rows)>0:
             print(f'List of {len(rows)} non-dispatched cached tasks')
