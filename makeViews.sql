@@ -71,7 +71,7 @@ create temporary view if not exists taskview as select
        row_number() over(order by task_time_invoked) tasknum,
        t.task_id,
        t.task_hashsum,
-       t.task_func_name as function,
+       t.task_func_name as appname,
        t.task_fail_count as fails,
        strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
@@ -89,8 +89,8 @@ create temporary view if not exists taskview as select
 create temporary view if not exists sumv1 as select
        rv.runnum,
        tv.tasknum,
-       tv.task_id,
-       tv.function,
+       s.task_id,
+       tv.appname,
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
        tv.fails,
@@ -104,10 +104,11 @@ create temporary view if not exists sumv1 as select
        y.task_joins,
        tv.depends,
        tv.stdout
-       from taskview tv
-       join try y on (rv.run_id=y.run_id and tv.task_id=y.task_id)
-       join status s on (rv.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id)
-       join runview rv on (rv.runnum=tv.runnum and rv.run_id=y.run_id)       
+       from task t
+       join runview rv on (rv.run_id=t.run_id)
+       join taskview tv on (t.task_hashsum=tv.task_hashsum)
+       join try y on (t.run_id=y.run_id and t.task_id=y.task_id)
+       join status s on (t.run_id=s.run_id and t.task_id=s.task_id and y.try_id=s.try_id)
        where tv.task_hashsum is not null and s.task_status_name="exec_done"
        group by tv.task_hashsum
        order by tv.tasknum asc;
@@ -116,8 +117,38 @@ create temporary view if not exists sumv1 as select
 create temporary view if not exists sumv2 as select
        rv.runnum,
        tv.tasknum,
+       s.task_id,
+       tv.appname,
+       s.task_status_name as status,
+       strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
+       tv.fails,
+       y.try_id,
+       y.hostname,
+       strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,
+       strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_running) as start,
+       time((julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as waitTime,
+       strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_returned) as ended,
+       time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime,
+       y.task_joins,
+       tv.depends,
+       tv.stdout
+       from task t
+       join runview rv on (rv.run_id=t.run_id)
+       join taskview tv on (t.task_hashsum=tv.task_hashsum)
+       join try y on (t.run_id=y.run_id and t.task_id=y.task_id)
+       join status s on (t.run_id=s.run_id and t.task_id=s.task_id and y.try_id=s.try_id)
+       where tv.task_hashsum is not null
+       	     and tv.tasknum not in (select v1.tasknum from sumv1 v1)
+       group by tv.task_hashsum
+       order by tv.tasknum asc;
+
+
+/* OLD version
+create temporary view if not exists sumv2 as select
+       tv.runnum,
+       tv.tasknum,
        tv.task_id,
-       tv.function,
+       tv.appname,
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
        tv.fails,
@@ -132,13 +163,15 @@ create temporary view if not exists sumv2 as select
        tv.depends,
        tv.stdout
        from taskview tv
+       join runview rv on (rv.runnum=tv.runnum)
        join try y on (rv.run_id=y.run_id and tv.task_id=y.task_id)
-       join status s on (rv.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id)
-       join runview rv on (rv.runnum=tv.runnum and rv.run_id=y.run_id)
+       join status s on (rv.run_id=s.run_id and y.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id)
        where tv.task_hashsum is not null
        	     and tv.tasknum not in (select v1.tasknum from sumv1 v1)
        group by tv.task_hashsum
        order by tv.tasknum asc;
+*/
+
 
 /* Put everything together */
 create temporary view if not exists summary as

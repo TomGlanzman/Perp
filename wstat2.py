@@ -31,7 +31,7 @@ stdVariables = (
        'rv.runnum,'
        'tv.tasknum,'
        'tv.task_id,'
-       'tv.function,'
+       'tv.appname,'
        's.task_status_name as status,'
        "strftime('%Y-%m-%d %H:%M:%S',s.timestamp) as timestamp,"
        'tv.fails,'
@@ -124,7 +124,7 @@ class pmon:
         self.taskLimit=0   # Set to non-zero to limit tasks processed for pTasks
         self.trows = None
         self.ttitles = None
-        self.tSumCols = ['runnum','tasknum','task_id','function','status','lastUpdate','fails','try_id',
+        self.tSumCols = ['runnum','tasknum','task_id','appname','status','lastUpdate','fails','try_id',
                          'hostname','launched','start','waitTime','ended','runTime']
         self.tSumColsExt = self.tSumCols+['depends','stdout']
 
@@ -444,7 +444,7 @@ class pmon:
         ##  Store -> taskStats{}:
         ##     taskStats{'taskname1':{#status1:num1,#status2:num2,...},...}
         taskStats = {}   # {'taskname':{statTemplate}}
-        tNameIndx = self.ttitles.index('function')
+        tNameIndx = self.ttitles.index('appname')
         tStatIndx = self.ttitles.index('status')
         nTaskTypes = 0
         nTasks = 0
@@ -500,7 +500,7 @@ class pmon:
         if runnum!=None:whereList.append(f' runnum={runnum} ')
         if tasknum!= None:whereList.append(f' tasknum={tasknum} ')
         if taskid!= None:whereList.append(f' task_id={taskid} ')
-        if taskname!=None:whereList.append(f' function="{taskname}" ')
+        if taskname!=None:whereList.append(f' appname="{taskname}" ')
         if status!=None:whereList.append(f' status="{status}" ')
         if len(whereList)>0:where = 'where '+' and '.join(whereList)
         
