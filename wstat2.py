@@ -52,7 +52,6 @@ stdSources = (
     )
 
 taskHistoryQuery = ('select '+stdVariables+stdSources+
-#       'where tv.tasknum=#tasknum# #morewhere# '
        'where #morewhere# '
        'order by s.timestamp asc ')
 
@@ -61,6 +60,28 @@ recentStatusQuery = ('select '+stdVariables+stdSources+
        'limit #limit# ')
 
 
+## Collect runtime statistics for plotting: waitTime, runTime, and
+## total elapsedTime (=waitTime+runTime).  Data can be per task (via
+## tv.task_hashsum) or task type (via tv.appname) depending on the
+## #groupby# choice
+
+plotStats = (
+    'select '
+    'tv.tasknum, '
+    'tv.appname, '
+    'count(y.try_id) as numTries, '
+    'y.task_try_time_launched, '
+    'y.task_try_time_running, '
+    'y.task_try_time_returned, '
+    'time(sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskWaitTime, '
+    'time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as taskRunTime, '
+    'time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskElapsedTime '
+    'from try y '
+    'join task t on (t.run_id=y.run_id and t.task_id=y.task_id) '
+    'join taskview tv on (tv.task_hashsum=t.task_hashsum) '
+    'group by #groupby# '
+    'order by tv.tasknum asc '
+    )
 
 
 
@@ -527,12 +548,14 @@ class pmon:
         ## This produces a list of the most recently invoked non-cached tasks
         if self.debug>0:print(f'Entering nctaskSummary()')
         where = ''
+        runtxt = 'for all runs'
         if runnum!=None:
             where = f' where runnum={runnum}'
+            runtxt = f'for run {runnum}'
         sql = 'select * from nctaskview'+where
         (rows,titles) = self.stdQuery(sql)
         if len(rows)>0:
-            print(f'List of most recent invocation of all {len(rows)} non-cached tasks')
+            print(f'List of most recent invocation of all {len(rows)} non-cached tasks {runtxt}')
             print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         else:
             print('There are no non-cached tasks to report.')
@@ -543,12 +566,14 @@ class pmon:
         ## This produces a list of non-dispatched cached tasks (no task_hashsum)
         if self.debug>0:print(f'Entering ndtaskSummary()')
         where = ''
+        runtxt = 'for all runs'
         if runnum!=None:
             where = f' where runnum={runnum}'
+            runtxt = f'for run {runnum}'
         sql = 'select * from ndtaskview'+where
         (rows,titles) = self.stdQuery(sql)
         if len(rows)>0:
-            print(f'List of {len(rows)} non-dispatched cached tasks')
+            print(f'List of {len(rows)} non-dispatched cached tasks {runtxt}')
             print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         else:
             print('There are no non-dispatched tasks to report.')
@@ -591,7 +616,18 @@ class pmon:
 
     def makePlots(self):
         ## Produce various plots
-        if self.debug>0:print('Entering plots()')
+        if self.debug>0:print('Entering makePlots()')
+        
+        ## Extract timing data from monitoring database.  Two types of
+        ## plots: 1) data for each indiviual parsl task; and, 2)
+        ## cummulative data for each task type (i.e., appname)
+
+        
+        ## Organize data for plotting
+
+        ## Prepare plotting canvas
+
+        ## Plot data
         return
     
 
@@ -688,7 +724,7 @@ if __name__ == '__main__':
     parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit output to N tasks (default is no limit)")
     parser.add_argument('-L','--statusLimit',type=int,default=20,help="limit status lines to N (default = %(default)s)")
     parser.add_argument('-x','--extendedCols',action='store_true',default=False,help="print out extended columns")
-    parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views")
+    parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views (currently a no-op)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
 
     parser.add_argument('-v','--version', action='version', version=__version__)

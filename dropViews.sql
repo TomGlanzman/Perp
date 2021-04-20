@@ -7,3 +7,4 @@ drop view taskview;
 drop view sumv1;
 drop view sumv2;
 drop view summary;
+drop view plotstats;
