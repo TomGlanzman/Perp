@@ -30,7 +30,7 @@ tblfmt = 'psql'
 stdVariables = (
        'rv.runnum,'
        'tv.tasknum,'
-       'tv.task_id,'
+       's.task_id,'
        'tv.appname,'
        's.task_status_name as status,'
        "strftime('%Y-%m-%d %H:%M:%S',s.timestamp) as timestamp,"
@@ -45,15 +45,17 @@ stdVariables = (
     )
 
 stdSources = (
-       'from taskview tv '
-       'join try y on (rv.run_id=y.run_id and tv.task_id=y.task_id) '
-       'join status s on (rv.run_id=s.run_id and tv.task_id=s.task_id and y.try_id=s.try_id) '
-       'join runview rv on (rv.run_id=y.run_id)'
+    'from task t '
+    'join runview rv on (rv.run_id=t.run_id) '
+    'join taskview tv on t.task_hashsum=tv.task_hashsum '
+    'join try y on (t.run_id=y.run_id and t.task_id=y.task_id) '
+    'join status s on (t.run_id=s.run_id and t.task_id=s.task_id and y.try_id=s.try_id) '
     )
 
-taskHistoryQuery = ('select '+stdVariables+stdSources+
-       'where #morewhere# '
-       'order by s.timestamp asc ')
+taskHistoryQuery = (
+    'select '+stdVariables+stdSources+
+    'where #morewhere# '
+    'order by rv.runnum,tv.tasknum,s.timestamp asc ')
 
 recentStatusQuery = ('select '+stdVariables+stdSources+
        'order by s.timestamp desc '
@@ -73,9 +75,9 @@ plotStats = (
     'y.task_try_time_launched, '
     'y.task_try_time_running, '
     'y.task_try_time_returned, '
-    'time(sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskWaitTime, '
-    'time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as taskRunTime, '
-    'time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskElapsedTime '
+    "time(sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskWaitTime, "
+    "time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as taskRunTime, "
+    "time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskElapsedTime "
     'from try y '
     'join task t on (t.run_id=y.run_id and t.task_id=y.task_id) '
     'join taskview tv on (tv.task_hashsum=t.task_hashsum) '
@@ -190,14 +192,16 @@ class pmon:
         ## Must split multiple sql commands into separate python sqlite3 calls
         sqlList = sql.split(';')
         sqlList = sqlList[:-1]   # remove last (empty) element in list
-        print(f'There were {len(sqlList)} sql commands found in the file')
+        if self.debug>0:print(f'There were {len(sqlList)} sql commands found in the file')
         return sqlList
     
     def storeViews(self):
         ## Store custom views into the monitoring.db file
         ##   View definitions are stored in an external file
-        if self.debug>0:print('Entering storeViews')
-        print('Attempting to remove sqlite "views" in monitoring database')
+        if self.debug>0:
+            print('Entering storeViews')
+            print('Attempting to remove sqlite "views" in monitoring database')
+            pass
         views = self.getSchemaList(type='view')
         for view in views:
             if view in self.viewList:
@@ -205,8 +209,10 @@ class pmon:
                 self.sqlCmd(sql)
                 pass
             pass
-        print('Attempting to add sqlite "views" to monitoring database')
-        print(f'makeViewsSQL = {self.makeViewsSQL}')
+        if self.debug>0:
+            print('Attempting to add sqlite "views" to monitoring database')
+            print(f'makeViewsSQL = {self.makeViewsSQL}')
+            pass
         sqlList2 = self.getSQLfromFile(self.makeViewsSQL)
         for cmd in sqlList2:
             self.sqlCmd(cmd)
@@ -586,8 +592,8 @@ class pmon:
             print(f'Entering taskHis(runnum={runnum},tasknum={tasknum},taskid={taskid},'
                   f'taskname={taskname},status={status},limit={limit}')
             pass
-        if tasknum==None and (taskid==None or runnum==None):
-            print(f'%ERROR: you must specify either a task number or (a taskID and run number) for this report')
+        if taskname==None and tasknum==None and (taskid==None or runnum==None):
+            print(f'%ERROR: you must specify a task (app) name, a task number or (a taskID and run number) for this report')
             sys.exit(1)
 
         # Prepare 'where' clause for sql
@@ -596,6 +602,7 @@ class pmon:
         if runnum!=None:whereList.append(f' rv.runnum={runnum} ')
         if tasknum!=None:whereList.append(f' tv.tasknum={tasknum}')
         if taskid!=None:whereList.append(f' tv.task_id={taskid}')
+        if taskname!=None:whereList.append(f' tv.appname="{taskname}"')
         if status!=None:whereList.append(f' status="{status}" ')
 
         morewhere = whereList[0]
@@ -660,7 +667,7 @@ class pmon:
         ## This produces a full history for specified task(s)
         if self.debug>0:print(f'Entering taskHistory()')
         if runnum!=None: self.printWorkflowSummary(runnum)
-        self.taskHis(runnum=runnum,tasknum=tasknum,taskid=taskid,status=status,limit=limit)
+        self.taskHis(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,limit=limit)
         self.taskStatusMatrix(runnum=runnum)
         return
 
