@@ -127,7 +127,7 @@ class pmon:
         self.viewsUpdated = False
         self.makeViewsSQL=os.path.join(sys.path[0],'makeViews.sql')
         if not self.checkViews():
-            print('%WARNING: This monitoring database does not contain the necessary "views" to continue')
+            #print('%WARNING: This monitoring database does not contain the necessary "views" to continue')
             self.storeViews()
             pass
 
@@ -143,6 +143,8 @@ class pmon:
         self.loadWorkflowTable()
 
         ## Prepare for task summary data
+        self.taskStats = {}   # {'taskname':{statTemplate}}
+        self.taskList = []    # list of all task types in this workflow
         self.sumFlag = False  # flag indicating whether task summary data has been read
         self.taskLimit=0   # Set to non-zero to limit tasks processed for pTasks
         self.trows = None
@@ -448,29 +450,15 @@ class pmon:
 
 
     def loadTaskData(self,what='*',where=''):
-        # Load in full task summary data (default parameters => load everything)
+        # Load in current task summary data (default parameters => load everything)
         if self.debug>0:print(f'Entering loadTaskData({what},{where})')
         sql = (f"select {what} from summary {where}")
         if self.debug > 0: print('sql = ',sql)
         (self.trows,self.ttitles) = self.stdQuery(sql)
-        self.sumFlag = True
-        return
-
-
-        
-    def taskStatusMatrix(self,runnum=None):
-        ## print matrix of task function name vs Parsl state
-        if self.debug>0:print('Entering taskStatusMatrix')
-        
-        if not self.sumFlag: self.loadTaskData()
-        if len(self.trows)<1:
-            print('No tasks to summarize')
-            return
 
         ## Tally status for each task type
         ##  Store -> taskStats{}:
-        ##     taskStats{'taskname1':{#status1:num1,#status2:num2,...},...}
-        taskStats = {}   # {'taskname':{statTemplate}}
+        ##     self.taskStats{'taskname1':{#status1:num1,#status2:num2,...},...}
         tNameIndx = self.ttitles.index('appname')
         tStatIndx = self.ttitles.index('status')
         nTaskTypes = 0
@@ -481,31 +469,55 @@ class pmon:
             nTasks += 1
             tName = task[tNameIndx]
             tStat = task[tStatIndx]
-            if tName not in taskStats.keys():
+            if tName not in self.taskStats.keys():
                 nTaskTypes += 1
-                taskStats[tName] = dict(self.statTemplate)
-                taskStats[tName]['TOTAL'] = 0
+                self.taskStats[tName] = dict(self.statTemplate)
+                self.taskStats[tName]['TOTAL'] = 0
                 pass
-            taskStats[tName][tStat] += 1
-            taskStats[tName]['TOTAL'] += 1
+            self.taskStats[tName][tStat] += 1
+            self.taskStats[tName]['TOTAL'] += 1
             statTotals[tStat] += 1
             statTotals['TOTAL'] += 1
             pass
-        taskStats['TOTAL'] = dict(statTotals)
+        self.taskStats['TOTAL'] = dict(statTotals)
+        self.taskList = list(self.taskStats.keys())[:-1]
+        self.sumFlag = True
+        return
+
+
         
-        ## Then convert into a Pandas dataframe
+    def taskStatusMatrix(self,runnum=None):
+        ## print matrix of task function name vs Parsl state
+        if self.debug>0:print('Entering taskStatusMatrix')
+
+        runTxt=' for all runs'
+        where = ''
+        if runnum!=None:
+            where=f'where runnum={runnum} '
+            runTxt=f' for run {runnum}'
+            pass
+        if not self.sumFlag: self.loadTaskData(where=where)
+        if len(self.trows)<1:
+            print('No tasks to summarize')
+            return
+
+        ## Convert statistics data into a Pandas dataframe
         ##    [Defining a pandas dataframe]
         ##    df = pandas.DataFrame(columns=['a','b','c','d'], index=['x','y','z'])
         ##    df.loc['y'] = pandas.Series({'a':1, 'b':5, 'c':2, 'd':3})
-        pTaskStats = pd.DataFrame(columns=list(self.statTemplate.keys())+['TOTAL'], index=taskStats.keys())
-        for task in taskStats:
-            pTaskStats.loc[task] = pd.Series(taskStats[task])
+        pTaskStats = pd.DataFrame(columns=list(self.statTemplate.keys())+['TOTAL'],
+                                  index=self.taskStats.keys())
+        for task in self.taskStats:
+            pTaskStats.loc[task] = pd.Series(self.taskStats[task])
             pass
-        #print('\nTask status matrix: \n',pTaskStats,'\n\n')    ## native DataFrame formatted output
-        print('\nTask status matrix:')
+
+
+        print(f'\nTask status matrix{runTxt}:')
         print(tabulate(pTaskStats,headers='keys',tablefmt=tblfmt))
         return
 
+
+    
     def taskSum(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,
                 limit=None,extendedCols=False,oddball=False):
         # Prepare and print out a summary of all (selected) tasks for this workflow
@@ -815,7 +827,7 @@ if __name__ == '__main__':
     ## Done
     endTime = datetime.datetime.now()
     print("wstat elapsed time = ",endTime-startTime)
-    sys.exit()
+    #sys.exit()
 
 
 
