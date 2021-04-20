@@ -6,3 +6,8 @@ reports and plots.  Currently, there is but a single script in this package, wst
 (workflow status), which does everything.
 
 Current python package dependencies:  sqlite3, tabulate, pandas, matplotlib
+
+As of 4/2021, the current tool is called "wstat2.py"; further helpl is available via
+
+$ python wstat2.py -h
+
