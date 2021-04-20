@@ -65,7 +65,7 @@ recentStatusQuery = ('select '+stdVariables+stdSources+
 ## Collect runtime statistics for plotting: waitTime, runTime, and
 ## total elapsedTime (=waitTime+runTime).  Data can be per task (via
 ## tv.task_hashsum) or task type (via tv.appname) depending on the
-## #groupby# choice
+## #groupby# choice. Time durations are returned in minutes.
 
 plotStats = (
     'select '
@@ -75,9 +75,9 @@ plotStats = (
     'y.task_try_time_launched, '
     'y.task_try_time_running, '
     'y.task_try_time_returned, '
-    "time(sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskWaitTime, "
-    "time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as taskRunTime, "
-    "time(sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*86400,'unixepoch') as taskElapsedTime "
+    "sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*1440 as taskWaitTime, "
+    "sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*1440 as taskRunTime, "
+    "sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*1440 as taskElapsedTime "
     'from try y '
     'join task t on (t.run_id=y.run_id and t.task_id=y.task_id) '
     'join taskview tv on (tv.task_hashsum=t.task_hashsum) '
@@ -636,13 +636,26 @@ class pmon:
     def makePlots(self):
         ## Produce various plots
         if self.debug>0:print('Entering makePlots()')
-        
-        ## Extract timing data from monitoring database.  Two types of
-        ## plots: 1) data for each indiviual parsl task; and, 2)
-        ## cummulative data for each task type (i.e., appname)
 
+        ## Load generic task data
+        self.loadTaskData()
+        print(f'There are {len(self.taskList)} task types in this workflow: {self.taskList}')
+        ## Extract timing data from monitoring database.  Two types of
+        ## plots:
+        ##   1) data for each individual parsl task; and,
+        ##   2) cummulative data for each task type (i.e., appname)
+        sql1 = plotStats.replace('#groupby#','tv.task_hashsum')
+        sql2 = plotStats.replace('#groupby#','tv.appname')
+        (trows,ttitles)=self.stdQuery(sql1)
+        (crows,ctitles)=self.stdQuery(sql2)
+
+        print(f'len(trows) = {len(trows)}')
+        print(f'len(crows) = {len(crows)}')
+        for i in range(2):
+            print(f'{i}: {trows[i][0:3]},{trows[i][6:9]}')
         
         ## Organize data for plotting
+        ## Time data is represented as minutes
 
         ## Prepare plotting canvas
 
