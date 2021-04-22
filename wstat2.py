@@ -8,8 +8,8 @@
 ## Python dependencies: sqlite3, tabulate, matplotlib
 
 ## T.Glanzman - Spring 2019
-__version__ = "2.0.0alpha"  # 4/1/2021
-pVersion='1.1.0:lsst-dm-202103'    ## Parsl version
+__version__ = "2.0.0beta"  # 4/1/2021
+pVersion='1.1.0:desc'    ## Parsl version
 
 import sys,os
 import sqlite3
@@ -633,6 +633,7 @@ class pmon:
         print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
 
+    
     def makePlots(self):
         ## Produce various plots
         if self.debug>0:print('Entering makePlots()')
@@ -641,7 +642,7 @@ class pmon:
         self.loadTaskData()
         print(f'There are {len(self.taskList)} task types in this workflow: {self.taskList}')
         
-        ## Extract timing data from monitoring database.
+        ## Query timing data from monitoring database.
         ## [tasknum,appname,numTries,launchTime,startTime,endTime,waitTime,runTime,elapsedTime]
         ## Two types of plots:
         ##   1) data for each individual parsl task; and,
@@ -652,21 +653,52 @@ class pmon:
         (crows,ctitles)=self.stdQuery(sql2)
         
         ## Organize data for plotting
-        ## Time data is represented as minutes
+        ## Time interval data is represented as minutes
         hists={}   # {<appname>:[datum1,datum2,...]}
-        nHists=len(self.taskList)
+
+        nhists=len(self.taskList)
         for task in self.taskList:
-            hists[task] = []
+            hists[task] = []       # initialize histogram data
             pass
+        for trow in trows: hists[trow[1]].append(trow[7])  # fill hist list of runTime
 
-        for trow in trows: hists[trow[1]].append(trow[7])
+        if self.debug>1:
+            for k in hists:
+                print(f'===> {k}[{len(hists[k])}] : {hists[k]}')
+                pass
+            pass
+        
+        ## Prepare plotting canvas (a grid of 4 cols x N rows)
+        ncols=4
+        if nhists%ncols == 0:
+            nrows = int(nhists/ncols)
+        else:
+            nrows = 1 + int(nhists/ncols)
+            pass
+        fig, ax = plt.subplots(nrows=nrows,ncols=ncols, squeeze=False)
+        nhist = 1
+        if self.debug>0: print(f'nhists={nhists}:  nrows={nrows}, ncols={ncols}')
 
-        for k in hists:
-            print(f'\n\n\n===> {k}[{len(hists[k])}] : {hists[k]}')
-                  
-        ## Prepare plotting canvas
+        ## Fill matplotlib histograms
+        for taskType in self.taskList:
+            row = int((nhist-1)/ncols)   # row of plot on canvas
+            col = (nhist-1)%ncols        # col of plot on canvas
+            if self.debug>0:print(f'{taskType}: nhist {nhist}, row {row}, col {col}')
+            x = ax[row][col]             # shortcut to histo 'axes' object
 
-        ## Plot data
+            n, bins, patches = x.hist(hists[taskType])
+
+            #  Use, e.g., r' ... $\sigma$ ...' strings for greek (in matplotlib only)
+            x.set_xlabel('runTime in minutes')
+            x.set_ylabel('# tasks')
+            x.set_title(fr'{nhist}[{row},{col}] {taskType}')
+            nhist += 1
+            pass
+        
+        # Tweak spacing to prevent clipping of ylabel, and display plots
+        fig.tight_layout()
+        plt.show()
+
         return
     
 
