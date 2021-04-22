@@ -72,12 +72,12 @@ plotStats = (
     'tv.tasknum, '
     'tv.appname, '
     'count(y.try_id) as numTries, '
-    'y.task_try_time_launched, '
-    'y.task_try_time_running, '
-    'y.task_try_time_returned, '
-    "sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*1440 as taskWaitTime, "
-    "sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*1440 as taskRunTime, "
-    "sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*1440 as taskElapsedTime "
+    'y.task_try_time_launched as launchTime, '
+    'y.task_try_time_running as startTime, '
+    'y.task_try_time_returned as endTime, '
+    "sum(julianday(y.task_try_time_running)-julianday(y.task_try_time_launched))*1440 as waitTime, "
+    "sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*1440 as runTime, "
+    "sum(julianday(y.task_try_time_returned)-julianday(y.task_try_time_launched))*1440 as elapsedTime "
     'from try y '
     'join task t on (t.run_id=y.run_id and t.task_id=y.task_id) '
     'join taskview tv on (tv.task_hashsum=t.task_hashsum) '
@@ -640,23 +640,30 @@ class pmon:
         ## Load generic task data
         self.loadTaskData()
         print(f'There are {len(self.taskList)} task types in this workflow: {self.taskList}')
-        ## Extract timing data from monitoring database.  Two types of
-        ## plots:
+        
+        ## Extract timing data from monitoring database.
+        ## [tasknum,appname,numTries,launchTime,startTime,endTime,waitTime,runTime,elapsedTime]
+        ## Two types of plots:
         ##   1) data for each individual parsl task; and,
         ##   2) cummulative data for each task type (i.e., appname)
         sql1 = plotStats.replace('#groupby#','tv.task_hashsum')
         sql2 = plotStats.replace('#groupby#','tv.appname')
         (trows,ttitles)=self.stdQuery(sql1)
         (crows,ctitles)=self.stdQuery(sql2)
-
-        print(f'len(trows) = {len(trows)}')
-        print(f'len(crows) = {len(crows)}')
-        for i in range(2):
-            print(f'{i}: {trows[i][0:3]},{trows[i][6:9]}')
         
         ## Organize data for plotting
         ## Time data is represented as minutes
+        hists={}   # {<appname>:[datum1,datum2,...]}
+        nHists=len(self.taskList)
+        for task in self.taskList:
+            hists[task] = []
+            pass
 
+        for trow in trows: hists[trow[1]].append(trow[7])
+
+        for k in hists:
+            print(f'\n\n\n===> {k}[{len(hists[k])}] : {hists[k]}')
+                  
         ## Prepare plotting canvas
 
         ## Plot data
