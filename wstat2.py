@@ -633,6 +633,25 @@ class pmon:
         print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
 
+    def runStats(self):
+        ## Display table of integrated time intervals per app
+        if self.debug>0:print(f'Entering runStats()')
+        sql2 = plotStats.replace('#groupby#','tv.appname')
+        (crows,ctitles)=self.stdQuery(sql2)
+
+        statsTitles=['appname','#(re)tries','waitTime','runTime','elapsedTime']
+        stats = []
+        for crow in crows:
+            stats.append([crow[1],crow[2],crow[6],crow[7],crow[8]])
+            pass
+
+        ## print and return
+        print(f'Accumulated run statistics for all {len(crows)} app types (includes any retries). Time in minutes.')
+        print(tabulate(stats,headers=statsTitles,tablefmt=tblfmt))
+
+        return
+
+        
     
     def makePlots(self):
         ## Produce various plots
@@ -648,9 +667,8 @@ class pmon:
         ##   1) data for each individual parsl task; and,
         ##   2) cummulative data for each task type (i.e., appname)
         sql1 = plotStats.replace('#groupby#','tv.task_hashsum')
-        sql2 = plotStats.replace('#groupby#','tv.appname')
         (trows,ttitles)=self.stdQuery(sql1)
-        (crows,ctitles)=self.stdQuery(sql2)
+
         
         ## Organize data for plotting
         ## Time interval data is represented as minutes
@@ -668,14 +686,15 @@ class pmon:
                 pass
             pass
         
-        ## Prepare plotting canvas (a grid of 4 cols x N rows)
+        ## Prepare plotting canvas (a grid of up to 4 cols x N rows)
         ncols=4
+        if nhists <= ncols: ncols=nhists
         if nhists%ncols == 0:
             nrows = int(nhists/ncols)
         else:
             nrows = 1 + int(nhists/ncols)
             pass
-        fig, ax = plt.subplots(nrows=nrows,ncols=ncols, squeeze=False)
+        fig, ax = plt.subplots(nrows=nrows,ncols=ncols, squeeze=False) # define canvas
         nhist = 1
         if self.debug>0: print(f'nhists={nhists}:  nrows={nrows}, ncols={ncols}')
 
@@ -683,19 +702,19 @@ class pmon:
         for taskType in self.taskList:
             row = int((nhist-1)/ncols)   # row of plot on canvas
             col = (nhist-1)%ncols        # col of plot on canvas
-            if self.debug>0:print(f'{taskType}: nhist {nhist}, row {row}, col {col}')
+            if self.debug>0:print(f'{taskType} [{len(hists[taskType])}]: nhist {nhist}, row {row}, col {col}')
             x = ax[row][col]             # shortcut to histo 'axes' object
 
-            n, bins, patches = x.hist(hists[taskType])
+            n, bins, patches = x.hist(hists[taskType])  # hand histo data to matplotlib
 
             #  Use, e.g., r' ... $\sigma$ ...' strings for greek (in matplotlib only)
-            x.set_xlabel('runTime in minutes')
-            x.set_ylabel('# tasks')
+            x.set_xlabel(f'runTime in minutes')
+            x.set_ylabel(f'# tasks')
             x.set_title(fr'{nhist}[{row},{col}] {taskType}')
             nhist += 1
             pass
         
-        # Tweak spacing to prevent clipping of ylabel, and display plots
+        # Tweak spacing, and display plots
         fig.tight_layout()
         plt.show()
 
@@ -761,6 +780,7 @@ class pmon:
     def plots(self):
         ## Produce various performance plots for this workflow **EXPERIMENTAL**
         if self.debug>0:print(f'Entering plots()')
+        self.runStats()
         self.makePlots()
         return
 
