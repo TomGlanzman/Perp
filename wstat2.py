@@ -694,7 +694,9 @@ class pmon:
         else:
             nrows = 1 + int(nhists/ncols)
             pass
-        fig, ax = plt.subplots(nrows=nrows,ncols=ncols, squeeze=False) # define canvas
+        #fig, ax = plt.subplots(nrows=nrows,ncols=ncols, squeeze=False) # define canvas
+        fig = plt.figure(figsize=(11,8.5))  ## Establish canvas
+        plt.suptitle("Task Runtimes")   ## define plot title (before making plots)
         nhist = 1
         if self.debug>0: print(f'nhists={nhists}:  nrows={nrows}, ncols={ncols}')
 
@@ -703,19 +705,23 @@ class pmon:
             row = int((nhist-1)/ncols)   # row of plot on canvas
             col = (nhist-1)%ncols        # col of plot on canvas
             if self.debug>0:print(f'{taskType} [{len(hists[taskType])}]: nhist {nhist}, row {row}, col {col}')
-            x = ax[row][col]             # shortcut to histo 'axes' object
+            x = fig.add_subplot(nrows,ncols,nhist)  # create a spot for the histogram
+            #x = plt.subplot(nrows,ncols,nhist)  # alternative to fig.add_subplot()
+            x.hist(hists[taskType])  # hand histo data to matplotlib
+            #n, bins, patches = x.hist(hists[taskType])  # in case you want the binned data
 
-            n, bins, patches = x.hist(hists[taskType])  # hand histo data to matplotlib
 
             #  Use, e.g., r' ... $\sigma$ ...' strings for greek (in matplotlib only)
             x.set_xlabel(f'runTime in minutes')
             x.set_ylabel(f'# tasks')
-            x.set_title(fr'{nhist}[{row},{col}] {taskType}')
+            x.set_title(fr'{taskType}')
+            #x.set_title(fr'{nhist}[{row},{col}] {taskType}')
             nhist += 1
             pass
         
         # Tweak spacing, and display plots
         fig.tight_layout()
+        plt.savefig("myplots.jpg")
         plt.show()
 
         return
