@@ -656,6 +656,7 @@ class pmon:
     def makePlots(self):
         ## Produce various plots
         if self.debug>0:print('Entering makePlots()')
+        histList = ['waitTime','runTime','elapsedTime']
 
         ## Load generic task data
         self.loadTaskData()
@@ -669,61 +670,63 @@ class pmon:
         sql1 = plotStats.replace('#groupby#','tv.task_hashsum')
         (trows,ttitles)=self.stdQuery(sql1)
 
+        for h in histList:
+            hx = ttitles.index(h)
+            print(f'h={h}, hx={hx}')
         
-        ## Organize data for plotting
-        ## Time interval data is represented as minutes
-        hists={}   # {<appname>:[datum1,datum2,...]}
+            ## Organize data for plotting
+            ## Time interval data is represented as minutes
+            hists={}   # {<appname>:[datum1,datum2,...]}
 
-        nhists=len(self.taskList)
-        for task in self.taskList:
-            hists[task] = []       # initialize histogram data
-            pass
-        for trow in trows: hists[trow[1]].append(trow[7])  # fill hist list of runTime
-
-        if self.debug>1:
-            for k in hists:
-                print(f'===> {k}[{len(hists[k])}] : {hists[k]}')
+            nhists=len(self.taskList)
+            for task in self.taskList:
+                hists[task] = []       # initialize histogram data
                 pass
-            pass
+            for trow in trows: hists[trow[1]].append(trow[hx])  # fill hist list of runTime
+
+            if self.debug>1:
+                for k in hists:
+                    print(f'===> {k}[{len(hists[k])}] : {hists[k]}')
+                    pass
+                pass
         
-        ## Prepare plotting canvas (a grid of up to 4 cols x N rows)
-        ncols=4
-        if nhists <= ncols: ncols=nhists
-        if nhists%ncols == 0:
-            nrows = int(nhists/ncols)
-        else:
-            nrows = 1 + int(nhists/ncols)
-            pass
-        #fig, ax = plt.subplots(nrows=nrows,ncols=ncols, squeeze=False) # define canvas
-        fig = plt.figure(figsize=(11,8.5))  ## Establish canvas
-        plt.suptitle("Task Runtimes")   ## define plot title (before making plots)
-        nhist = 1
-        if self.debug>0: print(f'nhists={nhists}:  nrows={nrows}, ncols={ncols}')
+            ## Prepare plotting canvas (a grid of up to 4 cols x N rows)
+            ncols=4
+            if nhists <= ncols: ncols=nhists
+            if nhists%ncols == 0:
+                nrows = int(nhists/ncols)
+            else:
+                nrows = 1 + int(nhists/ncols)
+                pass
+            fig = plt.figure(figsize=(11,8.5))  ## Establish canvas
+            plt.suptitle(f'Task {ttitles[hx]}s')   ## define plot title (before making plots)
+            nhist = 1
+            if self.debug>0: print(f'nhists={nhists}:  nrows={nrows}, ncols={ncols}')
 
-        ## Fill matplotlib histograms
-        for taskType in self.taskList:
-            row = int((nhist-1)/ncols)   # row of plot on canvas
-            col = (nhist-1)%ncols        # col of plot on canvas
-            if self.debug>0:print(f'{taskType} [{len(hists[taskType])}]: nhist {nhist}, row {row}, col {col}')
-            x = fig.add_subplot(nrows,ncols,nhist)  # create a spot for the histogram
-            #x = plt.subplot(nrows,ncols,nhist)  # alternative to fig.add_subplot()
-            x.hist(hists[taskType])  # hand histo data to matplotlib
-            #n, bins, patches = x.hist(hists[taskType])  # in case you want the binned data
+            ## Fill matplotlib histograms
+            for taskType in self.taskList:
+                row = int((nhist-1)/ncols)   # row of plot on canvas
+                col = (nhist-1)%ncols        # col of plot on canvas
+                if self.debug>0:print(f'{taskType} [{len(hists[taskType])}]: nhist {nhist}, row {row}, col {col}')
+                x = fig.add_subplot(nrows,ncols,nhist)  # create a spot for the histogram
+                #x = plt.subplot(nrows,ncols,nhist)  # alternative to fig.add_subplot()
+                x.hist(hists[taskType])  # hand histo data to matplotlib
+                #n, bins, patches = x.hist(hists[taskType])  # in case you want the binned data
 
 
-            #  Use, e.g., r' ... $\sigma$ ...' strings for greek (in matplotlib only)
-            x.set_xlabel(f'runTime in minutes')
-            x.set_ylabel(f'# tasks')
-            x.set_title(fr'{taskType}')
-            #x.set_title(fr'{nhist}[{row},{col}] {taskType}')
-            nhist += 1
-            pass
+                #  Use, e.g., r' ... $\sigma$ ...' strings for greek (in matplotlib only)
+                x.set_xlabel(f'{ttitles[hx]} in minutes')
+                x.set_ylabel(f'# tasks')
+                x.set_title(fr'{taskType}')
+                #x.set_title(fr'{nhist}[{row},{col}] {taskType}')
+                nhist += 1
+                pass
         
-        # Tweak spacing, and display plots
-        fig.tight_layout()
-        plt.savefig("myplots.jpg")
-        plt.show()
-
+            # Tweak spacing, and display plots
+            fig.tight_layout()
+            plt.savefig(f'plots-{ttitles[hx]}.jpg')
+            plt.show()
+            pass
         return
     
 

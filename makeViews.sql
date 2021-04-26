@@ -41,6 +41,7 @@ create temporary view if not exists nctaskview as select
        order by t.task_memoize,t.task_id;
 
 /* create a view of non-dispatched cached tasks (not yet achieved "pending" state) */
+/*  NOTE: python_apps are never "dispatched" */
 /*  NOTE: this category of tasks _may_ disappear at some point */
 create temporary view if not exists ndtaskview as select
        rv.runnum,
@@ -60,7 +61,7 @@ create temporary view if not exists ndtaskview as select
        join status s on (y.run_id=s.run_id and y.task_id=s.task_id and y.try_id=s.try_id)
        join runview rv on (t.run_id=rv.run_id)
        where (t.task_hashsum is null and task_memoize=1)
-       group by t.task_id
+       group by t.task_id,t.run_id
        order by t.task_memoize,t.task_id;
 
 
