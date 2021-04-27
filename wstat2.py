@@ -672,7 +672,7 @@ class pmon:
 
         for h in histList:
             hx = ttitles.index(h)
-            print(f'h={h}, hx={hx}')
+            if self.debug>0:print(f'h={h}, hx={hx}')
         
             ## Organize data for plotting
             ## Time interval data is represented as minutes
@@ -698,7 +698,7 @@ class pmon:
             else:
                 nrows = 1 + int(nhists/ncols)
                 pass
-            fig = plt.figure(figsize=(11,8.5))  ## Establish canvas
+            fig = plt.figure(figsize=(11,8.5),tight_layout=True)  ## Establish canvas
             plt.suptitle(f'Task {ttitles[hx]}s')   ## define plot title (before making plots)
             nhist = 1
             if self.debug>0: print(f'nhists={nhists}:  nrows={nrows}, ncols={ncols}')
@@ -713,7 +713,6 @@ class pmon:
                 x.hist(hists[taskType])  # hand histo data to matplotlib
                 #n, bins, patches = x.hist(hists[taskType])  # in case you want the binned data
 
-
                 #  Use, e.g., r' ... $\sigma$ ...' strings for greek (in matplotlib only)
                 x.set_xlabel(f'{ttitles[hx]} in minutes')
                 x.set_ylabel(f'# tasks')
@@ -722,8 +721,7 @@ class pmon:
                 nhist += 1
                 pass
         
-            # Tweak spacing, and display plots
-            fig.tight_layout()
+            # Display plots
             plt.savefig(f'plots-{ttitles[hx]}.jpg')
             plt.show()
             pass
