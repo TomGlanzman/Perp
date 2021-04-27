@@ -553,12 +553,16 @@ class pmon:
         if limit!=None and limit!=0: last=limit
         
         # Pretty print
-        print(f'MOST RECENT STATUS FOR SELECTED TASKS (# tasks selected = {len(rows)}, print limit = {last})')
-        print(tabulate(rows[0:last],headers=titles,tablefmt=tblfmt))
-
+        if len(rows)>0:
+            print(f'MOST RECENT STATUS FOR SELECTED TASKS (# tasks selected = {len(rows)}, print limit = {last})')
+            print(tabulate(rows[0:last],headers=titles,tablefmt=tblfmt))
+        else:
+            print(f'No ordinary cached tasks have been selected for display')
+            pass
+        
         ## Print oddball task?
         if oddball:
-            self.ndtaskSummary(runnum=runnum)
+            self.ndtaskSummary(runnum=runnum,taskname=taskname)
             self.nctaskSummary(runnum=runnum)
         return
 
@@ -580,15 +584,23 @@ class pmon:
             pass
         return
 
-    def ndtaskSummary(self,runnum=None):
+    def ndtaskSummary(self,runnum=None,taskname=None):
         ## This produces a list of non-dispatched cached tasks (no task_hashsum)
-        if self.debug>0:print(f'Entering ndtaskSummary()')
+        if self.debug>0:print(f'Entering ndtaskSummary(runnum={runnum},taskname={taskname})')
         where = ''
+        whereList = []
         runtxt = 'for all runs'
         if runnum!=None:
-            where = f' where runnum={runnum}'
+            whereList.append(f' runnum={runnum}')
             runtxt = f'for run {runnum}'
-        sql = 'select * from ndtaskview'+where
+            pass
+        if taskname!=None:
+            whereList.append(f' appname="{taskname}" ')
+            runtxt += f' and for app name={taskname} '
+            pass
+        if len(whereList)>0: where=' where '+'and'.join(whereList)
+
+        sql = 'select * from ndtaskview '+where
         (rows,titles) = self.stdQuery(sql)
         if len(rows)>0:
             print(f'List of {len(rows)} non-dispatched cached tasks {runtxt}')
