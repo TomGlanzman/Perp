@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-## wstat.py - workflow status summary from Parsl monitoring database
+## wstat.py - workflow execution reports and plots derived from Parsl monitoring database
 
 ## The idea is not to replace the "sqlite3" interactive command or the
 ## Parsl web interface, but to complement them to create some useful
@@ -123,7 +123,7 @@ class pmon:
 
 
         ## Prepare monitoring database with needed views, if necessary
-        self.viewList = ['runview','nctaskview','ndtaskview','taskview','sumv1','sumv2','summary']
+        self.viewList = ['runview','nctaskview','ndtaskview','taskview','sumv1','sumv2','summary','blockview']
         self.viewsUpdated = False
         self.makeViewsSQL=os.path.join(sys.path[0],'makeViews.sql')
         if not self.checkViews():
@@ -694,7 +694,8 @@ class pmon:
             for task in self.taskList:
                 hists[task] = []       # initialize histogram data
                 pass
-            for trow in trows: hists[trow[1]].append(trow[hx])  # fill hist list of runTime
+            for trow in trows:
+                if trow[hx] is not None: hists[trow[1]].append(trow[hx])  # fill hist list of runTime
 
             if self.debug>1:
                 for k in hists:
@@ -738,6 +739,21 @@ class pmon:
             plt.show()
             pass
         return
+
+    def batchSummary(self,runnum=None):
+        ## Summarize batch job usage
+        if self.debug>0:print('Entering batchSummary()')
+        # Fetch data from DB
+        msg='for all runs'
+        sql = 'select * from blockview'
+        if runnum!=None:
+            sql += f' where runnum={runnum}'
+            msg = f'for run {runnum}'
+        (rows,titles) = self.stdQuery(sql)
+        # Pretty print
+        print(f'\nBatch job summary table {msg}')
+        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        return
     
 
 
@@ -750,6 +766,7 @@ class pmon:
         if self.debug>0:print(f'Entering shortSummary({runnum})')
         self.printWorkflowSummary(runnum)
         self.taskStatusMatrix(runnum=runnum)
+        self.batchSummary(runnum=runnum)
         ##self.printTaskSummary(runnum,opt='short')
         return
 
@@ -762,6 +779,7 @@ class pmon:
         self.printWorkflowSummary(runnum)
         self.taskSum(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,
                      limit=limit,extendedCols=extendedCols,oddball=oddball)
+        self.batchSummary(runnum=runnum)
         self.taskStatusMatrix(runnum=runnum)
         return
 
@@ -918,219 +936,4 @@ if __name__ == '__main__':
     ## Done
     endTime = datetime.datetime.now()
     print("wstat elapsed time = ",endTime-startTime)
-    #sys.exit()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-########################################################################################################
-########################################################################################################
-########################################################################################################
-########################   OLD STUFF FOLLOWS  ##########################################################
-########################################################################################################
-########################################################################################################
-########################################################################################################
-
-"""
-    def plotStats(self,runnum=None):
-        ## plot statistics for most current parsl run
-        #
-        
-        ## Confirm pTasks[] has been filled
-        if not self.pTasksFilled: self.getTaskData(runnum=runnum,printSummary=False)
-
-        ## if no tasks defined, bail
-        if len(self.pTasks) < 1:
-            print("Nothing to plot: pTasks is empty!")
-            return
-        else:
-            print("There are ",len(self.pTasks)," tasks in pTasks.")
-            pass
-        
-        #
-        ## Sort task list by task type
-        ##  Input from pTasks[]:
-        ##     pTitles = {'task_id':0,'task_name':1,'run_num':2,'status':3,'hostname':4,
-        ##     '#fails':5,'submitTime':6,'startTime':7,'endTime':8,'runTime':9,'stdout':10}
-
-        ## Tally execution runtimes for "done" tasks
-        histData = {}  ## {"taskName":[runTime1,runTime2,...],...}
-        tNameIndx = self.pTitles['task_name']
-        tStatIndx = self.pTitles['status']
-        tRunIndx  = self.pTitles['runTime']
-        nTasks = 0
-        nTaskTypes = 0
-        nDone = 0
-        nErrors = 0
-        for task in self.pTasks:
-            nTasks += 1
-            tName = task[tNameIndx]
-            tStat = task[tStatIndx]
-#            if tStat.endswith('done'):      ## Currently includes "exec_done" and "memo_done"
-            if 'done' in tStat:      ## Currently includes "exec_done" and "memo_done"
-                nDone += 1
-                if task[tRunIndx] == None:
-                    nErrors += 1
-                    if nErrors < 10:
-                        print('%ERROR: monitoring.db bug.  Completed task has no runtime: ',task[:9])
-                    elif nErrors == 10:
-                        print('%ERROR: Too many tasks with no runtime...')
-                        pass
-                    continue
-                if task[tNameIndx] not in histData.keys():
-                    nTaskTypes += 1
-                    histData[tName] = [task[tRunIndx].total_seconds()/60]
-                else:
-                    histData[tName].append(task[tRunIndx].total_seconds()/60)
-                    pass
-                pass
-            pass
-
-        print('Total tasks = ',nTasks,'\nTotal task types = ',nTaskTypes,'\nTotal tasks done = ',nDone,'\nTotal missing runtimes = ',nErrors)
-
-        if self.debug > 0 :
-            for task in histData:
-                print('task: ',task,', len = ',len(histData[task]))
-                if self.debug > 1: print('  histData: ',histData[task])
-                pass
-            pass
-
-
-        ## At this point, all data is stored in tuples (in the histData{})
-        h = []
-        hno=0
-        import pickle
-        for task in histData.keys():
-            print("Histogramming data for task ",task)
-            #fig = plt.figure()
-            #plt.suptitle(task)
-            df = pd.DataFrame(histData[task])
-            print(f'df = {df}')
-            h.append(df.plot.hist(bins=25))
-            ###print("type(h) = ",type(h))
-            ###print("dir(h) = ",dir(h))
-            h[-1].set_ylabel("# instances")
-            h[-1].set_xlabel("time (min)")
-            h[-1].set_title(task)
-            hno+=1
-                         
-            plt.show()
-            pass
-        pickle.dump(h,open('plots.pickle','wb'))
-
-        return
-        #
-        ## Histogram run time separately for each task type
-        #print('task = ',task,', histData[task] = ',str(histData[task]))
-        #a, b, c = plt.hist(histData[task],bins=100,histtype='step')  # <-- this DOES work!
-
-        ## The following stanza was borrowed from ancient RSP code
-        # fig = plt.figure(figsize=(11,8.5))  ## Establish canvas
-        # plt.suptitle("Task Runtimes)   ## define plot title (before making plots)
-        # ax = fig.add_subplot(411)  ## 411 => 4 rows x 1 col of plots, this is plot #1
-        # #ax.plot(timex,flux,'k-',timex,flux,'r,',label="FLUX",linewidth=0.5,drawstyle='steps-mid')
-        # ax.set_ylabel('# tasks')
-        # ax.set_xlabel('Runtime (min)')
-        # ax.grid(True)
-        # #ax.ticklabel_format(style='sci',scilimits=(0,0),axis='y')  ## Numerical formatting
-        # plt.setp(ax.get_xticklabels(), visible=False)
-
-        ## matplotlib's hist function:
-        # matplotlib.pyplot.hist(x, bins=None, range=None,
-        # density=None, weights=None, cumulative=False, bottom=None,
-        # histtype='bar', align='mid', orientation='vertical',
-        # rwidth=None, log=False, color=None, label=None,
-        # stacked=False, normed=None, *, data=None, **kwargs)[source]
-
-        ## Setup histograms
-        nHists = len(histData.keys())
-        print("Preparing ",nHists," histograms.")
-        ncols = 3 # number of histograms across the page
-        if nHists%ncols == 0:
-            nrows = int(nHists/ncols)
-        else:
-            nrows = int(nHists/ncols) + 1
-            pass
-        print("(ncols,nrows) = (",ncols,nrows,")")
-        num_bins = 50
-
-
-        ## matplotlib.pyplot.subplots(nrows=1, ncols=1, sharex=False, sharey=False, squeeze=True, subplot_kw=None, gridspec_kw=None, **fig_kw)[source]
-        fig, ax = plt.subplots(nrows=nrows,ncols=ncols)
-        print('fig = ',fig)
-        print('ax = ',ax)
-
-        for task in histData.keys():
-
-            print('Plotting: task = ',task)
-
-            # the histogram of the data
-            n, bins, patches = ax.hist(histData[task], num_bins)
-
-            # add a 'best fit' line
-            # y = ((1 / (np.sqrt(2 * np.pi) * sigma)) *
-            #      np.exp(-0.5 * (1 / sigma * (bins - mu))**2))
-            #ax.plot(bins, y, '--')
-            ax.set_xlabel('Execution time on Cori KNL (min)')
-            ax.set_ylabel('# Tasks')
-            ax.grid(True)
-            ax.set_title('Distribution of '+task+' execution times')
-
-            # Tweak spacing to prevent clipping of ylabel
-            fig.tight_layout()
-            plt.show()
-        
-            pass
-
-        #
-        ## Display histograms
-        #
-        plt.show()
-        return
-
-    
-    
-"""

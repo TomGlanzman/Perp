@@ -151,4 +151,16 @@ create temporary view if not exists summary as
        select * from sumv2
        order by tasknum asc;
 
+/* Table of all batch jobs with run times */
 
+create temporary view if not exists blockview as select
+       rv.runnum,
+       b.block_id,
+       b.job_id,
+       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as start,
+       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as end,
+       time((julianday(max(timestamp))-julianday(min(timestamp)))*86400,'unixepoch') as runtime
+       from block b
+       join runview rv on b.run_id=rv.run_id
+       group by b.run_id,b.block_id,b.job_id
+       order by rv.runnum,b.block_id,b.job_id asc;
