@@ -94,7 +94,7 @@ create temporary view if not exists sumv1 as select
        tv.appname,
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
-       tv.fails,
+       t.task_fail_count as fails,
        y.try_id,
        y.hostname,
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,
@@ -122,7 +122,7 @@ create temporary view if not exists sumv2 as select
        tv.appname,
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
-       tv.fails,
+       t.task_fail_count as fails,
        y.try_id,
        y.hostname,
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,
@@ -157,9 +157,11 @@ create temporary view if not exists blockview as select
        rv.runnum,
        b.block_id,
        b.job_id,
-       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as start,
-       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as end,
-       time((julianday(max(timestamp))-julianday(min(timestamp)))*86400,'unixepoch') as runtime
+       b.executor_label xtor,
+       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as earliest,
+       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as latest,
+       time((julianday(max(timestamp))-julianday(min(timestamp)))*86400,'unixepoch') as elapsedTime,
+       b.status
        from block b
        join runview rv on b.run_id=rv.run_id
        group by b.run_id,b.block_id,b.job_id

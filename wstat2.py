@@ -755,7 +755,26 @@ class pmon:
         print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
     
+    def numTasksRunningHistory(self,runnum):
+        ## Time history of # of running jobs
+        if self.debug>0:print(f'Entering numTasksRunningHistory')
+        if runnum==None:return
+        # Fetch data from DB
+        sql = f'select strftime("%Y-%m-%d %H:%M:%S",s.timestamp) time,s.task_status_name status from status s join runview rv on (s.run_id=rv.run_id) where rv.runnum={runnum} and (task_status_name="running" or task_status_name="running_ended") order by timestamp'
 
+        df = pd.read_sql_query(sql,self.con)
+        print(df.head())
+        print()
+        print(tabulate(df,headers='keys',showindex=True,tablefmt=tblfmt))
+        #(rows,titles) = self.stdQuery(sql)
+        #print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+
+
+
+        return
+
+
+    
 
     ####################
     ## Driver functions
@@ -834,7 +853,7 @@ class pmon:
 if __name__ == '__main__':
 
 
-    reportTypes = ['shortSummary','taskSummary','taskHistory','nctaskSummary','runHistory','recentStatus','plots']
+    reportTypes = ['shortSummary','taskSummary','taskHistory','nctaskSummary','runHistory','recentStatus','plots','experimental']
 
     ## Parse command line arguments
     parser = argparse.ArgumentParser(description='A simple Parsl status reporter. Available reports include:'+str(reportTypes)+'.',
@@ -854,6 +873,7 @@ if __name__ == '__main__':
     parser.add_argument('-x','--extendedCols',action='store_true',default=False,help="print out extended columns")
     parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views (currently a no-op)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
+    parser.add_argument('-X','--experimental',action='store_true',default=False,help='Take a chance!')
 
     parser.add_argument('-v','--version', action='version', version=__version__)
 
@@ -926,6 +946,9 @@ if __name__ == '__main__':
         m.recentStatus(args.statusLimit)
     elif args.reportType == 'plots':
         m.plots()
+    elif args.reportType == 'experimental':
+        m.numTasksRunningHistory(args.runnum)
+
     else:
         print("%ERROR: Unrecognized reportType: ",args.reportType)
         print("Must be one of: ",reportTypes)
