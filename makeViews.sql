@@ -152,17 +152,55 @@ create temporary view if not exists summary as
        order by tasknum asc;
 
 /* Table of all batch jobs with run times */
-
 create temporary view if not exists blockview as select
        rv.runnum,
        b.block_id,
        b.job_id,
+       b.executor_label as xtor,
+       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as submitted,
+       br.startRun,
+       br.endRun,
+       br.runTime,
+       bc.completed,
+       time((julianday(bc.completed)-julianday(strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp))))*86400,'unixepoch') as elapsedTime,
+       b.status,
+       br.status,
+       bc.status
+       from block b
+       join runview rv on (rv.run_id=b.run_id)
+       left join blocksrunning br on (rv.runnum=br.runnum and br.block_id=b.block_id and br.job_id=b.job_id)
+       left join blockscompleted bc on (rv.runnum=bc.runnum and bc.block_id=b.block_id and bc.job_id=b.job_id)
+       where b.status='PENDING'
+       group by b.job_id
+       order by b.job_id;
+
+
+create temporary view if not exists blocksrunning as select
+       rv.runnum,
+       b.block_id,
+       b.job_id,
        b.executor_label xtor,
-       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as earliest,
-       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as latest,
-       time((julianday(max(timestamp))-julianday(min(timestamp)))*86400,'unixepoch') as elapsedTime,
+       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as startRun,
+       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as endRun,
+       time((julianday(max(timestamp))-julianday(min(timestamp)))*86400,'unixepoch') as runTime,
        b.status
        from block b
        join runview rv on b.run_id=rv.run_id
+       where b.status='RUNNING'
        group by b.run_id,b.block_id,b.job_id
        order by rv.runnum,b.block_id,b.job_id asc;
+
+
+create temporary view if not exists blockscompleted as select
+       rv.runnum,
+       b.block_id,
+       b.job_id,
+       b.executor_label xtor,
+       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as completed,
+       b.status
+       from block b
+       join runview rv on b.run_id=rv.run_id
+       where b.status='COMPLETED'
+       group by b.run_id,b.block_id,b.job_id
+       order by rv.runnum,b.block_id,b.job_id asc;
+
