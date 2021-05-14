@@ -35,6 +35,7 @@ stdVariables = (
        's.task_status_name as status,'
        "strftime('%Y-%m-%d %H:%M:%S',s.timestamp) as timestamp,"
        'tv.fails,'
+       'tv.failcost,'
        'y.try_id,'
        'y.hostname,'
        "strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,"
@@ -149,7 +150,7 @@ class pmon:
         self.taskLimit=0   # Set to non-zero to limit tasks processed for pTasks
         self.trows = None
         self.ttitles = None
-        self.tSumCols = ['runnum','tasknum','task_id','appname','status','lastUpdate','fails','try_id',
+        self.tSumCols = ['runnum','tasknum','task_id','appname','status','lastUpdate','fails','failcost','try_id',
                          'hostname','launched','start','waitTime','ended','runTime']
         self.tSumColsExt = self.tSumCols+['depends','stdout']
 
@@ -740,6 +741,8 @@ class pmon:
             pass
         return
 
+
+    
     def batchSummary(self,runnum=None):
         ## Summarize batch job usage
         if self.debug>0:print('Entering batchSummary()')
@@ -754,23 +757,68 @@ class pmon:
         print(f'\nBatch job summary table {msg}')
         print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
+
+
     
     def numTasksRunningHistory(self,runnum):
-        ## Time history of # of running jobs
+        ## Time history of # of running jobs {<timeStamp>:<increment/decrement>}
         if self.debug>0:print(f'Entering numTasksRunningHistory')
-        if runnum==None:return
+        if runnum==None:
+            print(f'No runnum specified, aborting')
+            return
         # Fetch data from DB
-        sql = f'select strftime("%Y-%m-%d %H:%M:%S",s.timestamp) time,s.task_status_name status from status s join runview rv on (s.run_id=rv.run_id) where rv.runnum={runnum} and (task_status_name="running" or task_status_name="running_ended") order by timestamp'
+        sql = f'''select count(*),strftime("%Y-%m-%d %H:%M:%S",s.timestamp) time,s.task_status_name status,
+                     rv.runnum,s.task_id,s.try_id
+                  from status s 
+                  join runview rv on (s.run_id=rv.run_id) 
+                  order by rv.runnum,s.task_id,s.try_id,timestamp'''
+        '''
+                  group by rv.runnum,s.task_id,s.try_id
+                  where rv.runnum={runnum} and (task_status_name="running" or task_status_name="running_ended") 
+        '''
 
+        # Fetch all status table entries and sort it out...
+        sql = f'''
+              select rv.runnum,task_id,try_id,task_status_name as status,timestamp
+              from status s
+              join runview rv on s.run_id=rv.run_id
+              where rv.runnum={runnum}
+              order by rv.runnum,task_id,timestamp
+              '''
+        # Print out result set
         df = pd.read_sql_query(sql,self.con)
-        print(df.head())
-        print()
-        print(tabulate(df,headers='keys',showindex=True,tablefmt=tblfmt))
+        #####TEMP DEBUG#####  print(tabulate(df,headers='keys',showindex=True,tablefmt=tblfmt))
+        print(f'Number of rows returned = {len(df)}')
         #(rows,titles) = self.stdQuery(sql)
         #print(tabulate(rows,headers=titles,tablefmt=tblfmt))
 
+        # Check the state transition sequence for each run/task/try
+        #print(df.info())
+        current = (0,0,0)  # (run_id,task_id,try_id)
+        ntries = 0
+        stateList = []
+        for i in range(len(df)):
+            rw = df.loc[i]
+            new=(rw['runnum'],rw['task_id'],rw['try_id'])
+            #print(f'{i}::{new} -- {rw["status"]}')
+            if new != current:
+                if current != (0,0,0):
+                    print(f'{ntries}: (run,task,try) = {current}, states: {stateList}')
+                    pass
+                stateList=[]
+                current=new
+                ntries += 1
+                pass
+            stateList.append(rw['status'])
+            if i == len(df)-1:
+                print(f'{ntries}: (run,task,try) = {current}, states: {stateList}')
+                pass
+            #print(f'rw.index = {rw.index}')
+            #print(f'rw["runnum"] = {rw["runnum"]}')
+            #print(f'{i}:  rw = {rw}')
+            pass
 
-
+        print(f'There are {ntries} unique (run,task,try) in run {runnum}')
         return
 
 
@@ -874,7 +922,6 @@ if __name__ == '__main__':
     parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views (currently a no-op)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
     parser.add_argument('-X','--experimental',action='store_true',default=False,help='Take a chance!')
-
     parser.add_argument('-v','--version', action='version', version=__version__)
 
 

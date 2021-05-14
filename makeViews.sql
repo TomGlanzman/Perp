@@ -24,6 +24,7 @@ create temporary view if not exists nctaskview as select
        t.task_id,
        t.task_func_name as appname,
        t.task_fail_count as fails,
+       t.task_fail_cost as failcost,
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
        strftime('%Y-%m-%d %H:%M:%S',(t.task_time_invoked)) as invoked,
@@ -48,6 +49,7 @@ create temporary view if not exists ndtaskview as select
        t.task_id,
        t.task_func_name as appname,
        t.task_fail_count as fails,
+       t.task_fail_cost as failcost,
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as statusUpdate,
        strftime('%Y-%m-%d %H:%M:%S',(t.task_time_invoked)) as invoked,
@@ -74,6 +76,7 @@ create temporary view if not exists taskview as select
        t.task_hashsum,
        t.task_func_name as appname,
        t.task_fail_count as fails,
+       t.task_fail_cost as failcost,
        strftime('%Y-%m-%d %H:%M:%S',min(t.task_time_invoked)) as invoked,
        strftime('%Y-%m-%d %H:%M:%S',t.task_time_returned) as returned,
        time((julianday(t.task_time_returned)-julianday(t.task_time_invoked))*86400,'unixepoch') as elapsedTime,
@@ -95,6 +98,7 @@ create temporary view if not exists sumv1 as select
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
        t.task_fail_count as fails,
+       t.task_fail_cost as failcost,
        y.try_id,
        y.hostname,
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,
@@ -123,6 +127,7 @@ create temporary view if not exists sumv2 as select
        s.task_status_name as status,
        strftime('%Y-%m-%d %H:%M:%S',max(s.timestamp)) as lastUpdate,
        t.task_fail_count as fails,
+       t.task_fail_cost as failcost,
        y.try_id,
        y.hostname,
        strftime('%Y-%m-%d %H:%M:%S',y.task_try_time_launched) as launched,
@@ -151,7 +156,11 @@ create temporary view if not exists summary as
        select * from sumv2
        order by tasknum asc;
 
-/* Table of all batch jobs with run times */
+
+
+
+/* Batch job section
+   Batch information must be built-up starting with "PENDING" */
 create temporary view if not exists blockview as select
        rv.runnum,
        b.block_id,
