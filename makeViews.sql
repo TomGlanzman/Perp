@@ -108,6 +108,7 @@ create temporary view if not exists sumv1 as select
        time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime,
        y.task_joins,
        tv.depends,
+       y.task_fail_history as failReason,
        tv.stdout
        from task t
        join runview rv on (rv.run_id=t.run_id)
@@ -137,6 +138,7 @@ create temporary view if not exists sumv2 as select
        time((julianday(y.task_try_time_returned)-julianday(y.task_try_time_running))*86400,'unixepoch') as runTime,
        y.task_joins,
        tv.depends,
+       y.task_fail_history as failReason,
        tv.stdout
        from task t
        join runview rv on (rv.run_id=t.run_id)
@@ -167,8 +169,8 @@ create temporary view if not exists blockview as select
        b.job_id,
        b.executor_label as xtor,
        strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as submitted,
-       br.startRun,
-       br.endRun,
+       br.startJob,
+       br.endJob,
        br.runTime,
        bc.completed,
        time((julianday(bc.completed)-julianday(strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp))))*86400,'unixepoch') as elapsedTime,
@@ -189,8 +191,8 @@ create temporary view if not exists blocksrunning as select
        b.block_id,
        b.job_id,
        b.executor_label xtor,
-       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as startRun,
-       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as endRun,
+       strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as startJob,
+       strftime('%Y-%m-%d %H:%M:%S',max(b.timestamp)) as endJob,
        time((julianday(max(timestamp))-julianday(min(timestamp)))*86400,'unixepoch') as runTime,
        b.status
        from block b

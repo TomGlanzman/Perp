@@ -152,7 +152,7 @@ class pmon:
         self.ttitles = None
         self.tSumCols = ['runnum','tasknum','task_id','appname','status','lastUpdate','fails','failcost','try_id',
                          'hostname','launched','start','waitTime','ended','runTime']
-        self.tSumColsExt = self.tSumCols+['depends','stdout']
+        self.tSumColsExt = self.tSumCols+['depends','failReason','stdout']
 
         ## nodeUsage is a list of nodes currently in use and the
         ## number of tasks running on them.  {nodeID:#runningTasks}
@@ -555,7 +555,7 @@ class pmon:
         
         # Pretty print
         if len(rows)>0:
-            print(f'MOST RECENT STATUS FOR SELECTED TASKS (# tasks selected = {len(rows)}, print limit = {last})')
+            print(f'Most recent status for selected cached tasks (# tasks selected = {len(rows)}, print limit = {last})')
             print(tabulate(rows[0:last],headers=titles,tablefmt=tblfmt))
         else:
             print(f'No ordinary cached tasks have been selected for display')
@@ -743,15 +743,20 @@ class pmon:
 
 
     
-    def batchSummary(self,runnum=None):
+    def batchSummary(self,runnum=None,limit=None):
         ## Summarize batch job usage
-        if self.debug>0:print('Entering batchSummary()')
+        if self.debug>0:print(f'Entering batchSummary(runnum={runnum},limit={limit})')
         # Fetch data from DB
         msg='for all runs'
         sql = 'select * from blockview'
         if runnum!=None:
             sql += f' where runnum={runnum}'
             msg = f'for run {runnum}'
+            pass
+        if limit!=None:
+            sql += f' limit {limit} '
+            msg += f' (limit {limit})'
+            pass
         (rows,titles) = self.stdQuery(sql)
         # Pretty print
         print(f'\nBatch job summary table {msg}')
@@ -828,12 +833,12 @@ class pmon:
     ## Driver functions
     ####################
 
-    def shortSummary(self,runnum=None):
+    def shortSummary(self,runnum=None,limit=None):
         ## This is the short summary.
         if self.debug>0:print(f'Entering shortSummary({runnum})')
         self.printWorkflowSummary(runnum)
         self.taskStatusMatrix(runnum=runnum)
-        self.batchSummary(runnum=runnum)
+        self.batchSummary(runnum=runnum,limit=limit)
         ##self.printTaskSummary(runnum,opt='short')
         return
 
@@ -846,7 +851,7 @@ class pmon:
         self.printWorkflowSummary(runnum)
         self.taskSum(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,
                      limit=limit,extendedCols=extendedCols,oddball=oddball)
-        self.batchSummary(runnum=runnum)
+        self.batchSummary(runnum=runnum,limit=limit)
         self.taskStatusMatrix(runnum=runnum)
         return
 
@@ -977,7 +982,7 @@ if __name__ == '__main__':
 
     ## Print out requested report
     if args.reportType == 'shortSummary':
-        m.shortSummary(runnum=args.runnum)
+        m.shortSummary(runnum=args.runnum,limit=5)
     elif args.reportType == 'taskSummary':
         m.taskSummary(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
                       taskname=args.taskName,limit=args.taskLimit,
