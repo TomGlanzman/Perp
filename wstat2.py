@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 ## wstat.py - workflow execution reports and plots derived from Parsl monitoring database
-
 ## The idea is not to replace the "sqlite3" interactive command or the
 ## Parsl web interface, but to complement them to create some useful
 ## interactive summaries specific to Parsl workflows.
@@ -106,6 +105,10 @@ class pmon:
         self.con.row_factory = sqlite3.Row                 ## optimize output format
         self.cur = self.con.cursor()                       ## create a 'cursor'
 
+        ## List of all tables in sqlite3 db file
+        self.tableList = self.getTableList()
+        self.neededTables = ['workflow','task','try','node','block','status','resource']
+        
         ## List of all task states defined by Parsl
         self.statList = ['pending','launched','running','joining','running_ended','unsched','unknown','exec_done','memo_done','failed','dep_fail','fail_retryable']
 
@@ -124,7 +127,8 @@ class pmon:
 
 
         ## Prepare monitoring database with needed views, if necessary
-        self.viewList = ['runview','nctaskview','ndtaskview','taskview','sumv1','sumv2','summary','blockview']
+        self.viewList = self.getTableList(type='view')
+        self.neededViews = ['runview','nctaskview','ndtaskview','taskview','sumv1','sumv2','summary','blockview']
         self.viewsUpdated = False
         self.makeViewsSQL=os.path.join(sys.path[0],'makeViews.sql')
         if not self.checkViews():
@@ -174,9 +178,9 @@ class pmon:
 
     def checkViews(self):
         ## Check that this sqlite3 database file contains the needed views
-        views = self.getSchemaList(type='view')
-        if len(views)==0:return False
-        for view in self.viewList:
+        #views = self.getTableList(type='view')
+        if len(self.viewList)==0:return False
+        for view in self.neededViews:
             if view not in views:return False
         return True
     
@@ -205,9 +209,9 @@ class pmon:
             print('Entering storeViews')
             print('Attempting to remove sqlite "views" in monitoring database')
             pass
-        views = self.getSchemaList(type='view')
-        for view in views:
-            if view in self.viewList:
+        #views = self.getTableList(type='view')
+        for view in self.viewList:
+            if view in self.neededView:
                 sql = f'drop view {view}'
                 self.sqlCmd(sql)
                 pass
@@ -224,9 +228,9 @@ class pmon:
         return
 
     
-    def getSchemaList(self,type='table'):
+    def getTableList(self,type='table'):
         ## Fetch list of all db tables and views
-        if self.debug>0:print(f'Entering getSchemaList({type})')
+        if self.debug>0:print(f'Entering getTableList({type})')
         ## Parsl monitoring.db currently contains four tables: resource, status, task, workflow
         self.cur.execute(f"SELECT name FROM sqlite_master WHERE type='{type}';")
         rawTableList = self.cur.fetchall()
@@ -607,7 +611,7 @@ class pmon:
             print(f'List of {len(rows)} non-dispatched cached tasks {runtxt}')
             print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         else:
-            print('There are no non-dispatched tasks to report.')
+            print('There are no non-dispatched cached tasks to report.')
         return
 
    
@@ -953,17 +957,17 @@ if __name__ == '__main__':
     if args.schemas:
         ## Fetch a list of all tables and views in this database
         print('Fetching list of tables and views')
-        tableList = m.getSchemaList('table')
-        print('Tables: ',tableList)
-        viewList = m.getSchemaList('view')
-        print('Views: ',viewList)
+        #tableList = m.getTableList('table')
+        print('Tables: ',self.tableList)
+        #viewList = m.getTableList('view')
+        print('Views: ',self.viewList)
         ## Print out schema for all tables
-        for table in tableList:
+        for table in self.tableList:
             schema = m.getSchema('table',table)
             print(schema[0][0])
             pass
         ## Print out schema for all views
-        for view in viewList:
+        for view in self.viewList:
             schema = m.getSchema('view',view)
             print(schema[0][0])
             pass
