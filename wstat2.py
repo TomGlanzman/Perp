@@ -750,7 +750,7 @@ class pmon:
     def blockSummary(self,runnum=None,limit=None):
         ## Summarize batch job usage
         if self.debug>0:print(f'Entering blockSummary(runnum={runnum},limit={limit})')
-        if limit == 0 or limit == 'None':
+        if limit == 0:
             print(f'Skipping blockSummary')
             return
         if limit < 0: limit=None
@@ -768,7 +768,7 @@ class pmon:
             pass
         (rows,titles) = self.stdQuery(sql)
         # Pretty print
-        print(f'\nBatch job summary table {msg}')
+        print(f'\nBlock summary table {msg}.  {len(rows)} blocks found.')
         print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
 
