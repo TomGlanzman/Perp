@@ -747,16 +747,21 @@ class pmon:
 
 
     
-    def batchSummary(self,runnum=None,limit=None):
+    def blockSummary(self,runnum=None,limit=None):
         ## Summarize batch job usage
-        if self.debug>0:print(f'Entering batchSummary(runnum={runnum},limit={limit})')
+        if self.debug>0:print(f'Entering blockSummary(runnum={runnum},limit={limit})')
+        if limit == 0 or limit == 'None':
+            print(f'Skipping blockSummary')
+            return
+        if limit < 0: limit=None
         # Fetch data from DB
         msg='for all runs'
-        sql = 'select * from blockview'
+        sql = 'select * from blockview '
         if runnum!=None:
             sql += f' where runnum={runnum}'
             msg = f'for run {runnum}'
             pass
+        sql += f' order by startJob '
         if limit!=None:
             sql += f' limit {limit} '
             msg += f' (limit {limit})'
@@ -842,7 +847,7 @@ class pmon:
         if self.debug>0:print(f'Entering shortSummary({runnum})')
         self.printWorkflowSummary(runnum)
         self.taskStatusMatrix(runnum=runnum)
-        self.batchSummary(runnum=runnum,limit=limit)
+        self.blockSummary(runnum=runnum,limit=limit)
         ##self.printTaskSummary(runnum,opt='short')
         return
 
@@ -855,7 +860,7 @@ class pmon:
         self.printWorkflowSummary(runnum)
         self.taskSum(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,
                      limit=limit,extendedCols=extendedCols,oddball=oddball)
-        self.batchSummary(runnum=runnum,limit=limit)
+        self.blockSummary(runnum=runnum,limit=limit)
         self.taskStatusMatrix(runnum=runnum)
         return
 
@@ -925,8 +930,9 @@ if __name__ == '__main__':
     parser.add_argument('-o','--oddballTasks',action='store_true',default=False,help="include non-cached/non-dispatched tasks")
     parser.add_argument('-n','--taskName',default=None,help="specify task_func_name")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
-    parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit output to N tasks (default is no limit)")
-    parser.add_argument('-L','--statusLimit',type=int,default=20,help="limit status lines to N (default = %(default)s)")
+    parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit task list (default is no limit)")
+    parser.add_argument('-L','--statusLimit',type=int,default=20,help="limit status list (default = %(default)s)")
+    parser.add_argument('-B','--blockLimit',type=int,default=20,help="limit block (job) list (default = %(default)s)")
     parser.add_argument('-x','--extendedCols',action='store_true',default=False,help="print out extended columns")
     parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views (currently a no-op)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
@@ -986,7 +992,7 @@ if __name__ == '__main__':
 
     ## Print out requested report
     if args.reportType == 'shortSummary':
-        m.shortSummary(runnum=args.runnum,limit=5)
+        m.shortSummary(runnum=args.runnum,limit=args.blockLimit)
     elif args.reportType == 'taskSummary':
         m.taskSummary(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
                       taskname=args.taskName,limit=args.taskLimit,
