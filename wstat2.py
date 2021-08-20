@@ -423,8 +423,8 @@ class pmon:
         wSummaryList.append(['tasks completed: failed',row['failed_count'] ])
         wSummaryList.append(['----------','----------'])
         wSummaryList.append([f'summary of {myruns}',''])
-        wSummaryList.append(['cached tasks ',nTasks])
-        wSummaryList.append(['non-dispatched cached tasks ',ndTasks])
+        wSummaryList.append(['cached tasks (dispatched)',nTasks])
+        wSummaryList.append(['cached tasks (non-dispatched)',ndTasks])
         wSummaryList.append(['non-cached tasks ',ncTasks])
         wSummaryList.append(['----------','----------'])
         wSummaryList.append(['workflow user', row['user']+'@'+row['host']])
@@ -615,14 +615,14 @@ class pmon:
         return
 
    
-    def taskHis(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None):
+    def taskHis(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,hashsum=None,limit=None):
         # Print out the full history for a single, specified task in this workflow
         if self.debug>0:
             print(f'Entering taskHis(runnum={runnum},tasknum={tasknum},taskid={taskid},'
                   f'taskname={taskname},status={status},limit={limit}')
             pass
-        if taskname==None and tasknum==None and (taskid==None or runnum==None):
-            print(f'%ERROR: you must specify a task (app) name, a task number or (a taskID and run number) for this report')
+        if taskname==None and tasknum==None and (taskid==None or runnum==None) and hashsum==None:
+            print(f'%ERROR: you must specify a task (app) name, a task number, a task hashsum, or (a taskID and run number) for this report')
             sys.exit(1)
 
         # Prepare 'where' clause for sql
@@ -633,6 +633,7 @@ class pmon:
         if taskid!=None:whereList.append(f' tv.task_id={taskid}')
         if taskname!=None:whereList.append(f' tv.appname="{taskname}"')
         if status!=None:whereList.append(f' status="{status}" ')
+        if hashsum!=None:whereList.append(f' t.task_hashsum="{hashsum}" ')
 
         morewhere = whereList[0]
         if len(whereList)>1:morewhere = ' and '.join(whereList[1:])
@@ -646,7 +647,7 @@ class pmon:
         (rows,titles) = self.stdQuery(sql)
         
         # Pretty print
-        print(f'Full history of task {tasknum}, containing {len(rows)} state changes')
+        print(f'Full history of task, where {morewhere}, containing {len(rows)} state changes')
         print(tabulate(rows,headers=titles,tablefmt=tblfmt))
         return
 
@@ -753,7 +754,7 @@ class pmon:
         if limit == 0:
             print(f'Skipping blockSummary')
             return
-        if limit < 0: limit=None
+        if limit != None and limit < 0: limit=None
         # Fetch data from DB
         msg='for all runs'
         sql = 'select * from blockview '
@@ -864,11 +865,11 @@ class pmon:
         self.taskStatusMatrix(runnum=runnum)
         return
 
-    def taskHistory(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,limit=None):
+    def taskHistory(self,runnum=None,tasknum=None,taskid=None,taskname=None,status=None,hashsum=None,limit=None):
         ## This produces a full history for specified task(s)
         if self.debug>0:print(f'Entering taskHistory()')
         if runnum!=None: self.printWorkflowSummary(runnum)
-        self.taskHis(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,limit=limit)
+        self.taskHis(runnum=runnum,tasknum=tasknum,taskid=taskid,taskname=taskname,status=status,hashsum=hashsum,limit=limit)
         self.taskStatusMatrix(runnum=runnum)
         return
 
@@ -924,19 +925,20 @@ if __name__ == '__main__':
     parser.add_argument('reportType',help='Type of report to display (default=%(default)s)',nargs='?',default='shortSummary')
     parser.add_argument('-f','--file',default='./monitoring.db',help='name of Parsl monitoring database file (default=%(default)s)')
     parser.add_argument('-r','--runnum',type=int,help='Specific run number of interest (default = latest)')
-    parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
     parser.add_argument('-t','--tasknum',default=None,help="specify tasknum (required for taskHistory)")
     parser.add_argument('-T','--taskID',default=None,help="specify taskID")
-    parser.add_argument('-o','--oddballTasks',action='store_true',default=False,help="include non-cached/non-dispatched tasks")
     parser.add_argument('-n','--taskName',default=None,help="specify task_func_name")
+    parser.add_argument('-H','--hashsum',default=None,help="specify task_hashsum")
+    parser.add_argument('-o','--oddballTasks',action='store_true',default=False,help="include non-cached/non-dispatched tasks")
+    parser.add_argument('-x','--extendedCols',action='store_true',default=False,help="print out extended columns")
     parser.add_argument('-S','--taskStatus',default=None,help="specify task_status_name")
     parser.add_argument('-l','--taskLimit',type=int,default=None,help="limit task list (default is no limit)")
     parser.add_argument('-L','--statusLimit',type=int,default=20,help="limit status list (default = %(default)s)")
     parser.add_argument('-B','--blockLimit',type=int,default=20,help="limit block (job) list (default = %(default)s)")
-    parser.add_argument('-x','--extendedCols',action='store_true',default=False,help="print out extended columns")
     parser.add_argument('-u','--updateViews',action='store_true',default=False,help="force update of sqlite3 views (currently a no-op)")
     parser.add_argument('-d','--debug',type=int,default=0,help='Set debug level (default = %(default)s)')
-    parser.add_argument('-X','--experimental',action='store_true',default=False,help='Take a chance!')
+#    parser.add_argument('-X','--experimental',action='store_true',default=False,help='Take a chance!')
+    parser.add_argument('-s','--schemas',action='store_true',default=False,help="only print out monitoring db schema for all tables")
     parser.add_argument('-v','--version', action='version', version=__version__)
 
 
@@ -999,7 +1001,7 @@ if __name__ == '__main__':
                       extendedCols=args.extendedCols,oddball=args.oddballTasks)
     elif args.reportType == 'taskHistory':
         m.taskHistory(runnum=args.runnum,tasknum=args.tasknum,taskid=args.taskID,status=args.taskStatus,
-                      taskname=args.taskName,limit=args.taskLimit)
+                      taskname=args.taskName,hashsum=args.hashsum,limit=args.taskLimit)
     elif args.reportType == 'nctaskSummary':
         m.nctaskSummary()
     elif args.reportType == 'runHistory':
