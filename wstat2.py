@@ -781,6 +781,76 @@ class pmon:
         if runnum==None:
             print(f'No runnum specified, aborting')
             return
+
+        # Query monitoring.db twice, once for all "running" status
+        # transitions, and again for "running_ended"
+        run_id = self.runnum2id[runnum]
+        qON = f'''select timestamp 
+                  from status
+                  where (run_id="{run_id}" and task_status_name="running")
+                  order by timestamp
+               '''
+        #print(f'Query: {qON}')
+        ## This query returns the 'timestamp' as a string (not a 'date')
+        
+        dfON = pd.read_sql_query(qON,self.con)
+        print(f'Lines returned by query qON = {len(dfON)}')
+
+        qOFF = f'''select timestamp 
+                  from status
+                  where (run_id="{run_id}" and task_status_name="running_ended")
+                  order by timestamp
+               '''
+        #print(f'Query: {qOFF}')
+        dfOFF = pd.read_sql_query(qOFF,self.con)
+        print(f'Lines returned by query qOFF = {len(dfOFF)}')
+        ## dfON
+        print(f'dfON:  {dfON[0:10]}')
+        print(f'dfOFF: {dfOFF[0:10]}')
+
+        
+        print(f'dfON.values[0] = {dfON.values[0]}')
+        print(f'dfON.values[0][0] = {dfON.values[0][0]}')
+        print(f'type(dfON.values[0][0]) = {type(dfON.values[0][0])}')
+
+        
+
+        #######################################################################
+        ## Drop into an interactive REPL-like environment
+        import code
+        code.interact(local=locals())
+        #######################################################################
+
+        # Convert timestamps from strings into datetime (or pandas equiv) objects
+        # Use pd.to_datetime('datestring') to convert to a PANDAS datetime object
+
+        
+        # Order the lists chronologically; determine the start
+        # (earliest) and stop (latest) times in the result set
+
+
+        # Create an array of time bins to hold tallies, must decide on
+        # bin size, initialize to all zeros
+
+
+        # Cycle through result sets, incrementing the time bin for a
+        # "running" transition, else decrement
+
+
+        # Cycle through the time bins starting with the earliest.  Add
+        # the contents of bin "N-1" to bin "N", then move on to bin
+        # "N+1"
+
+
+        # Plot the quasi histogram
+        
+
+
+        # All done
+        return
+
+    
+        ##### BELOW is an initial attempt and may now be obsolete...
         # Fetch data from DB
         sql = f'''select count(*),strftime("%Y-%m-%d %H:%M:%S",s.timestamp) time,s.task_status_name status,
                      rv.runnum,s.task_id,s.try_id
@@ -802,7 +872,7 @@ class pmon:
               '''
         # Print out result set
         df = pd.read_sql_query(sql,self.con)
-        #####TEMP DEBUG#####  print(tabulate(df,headers='keys',showindex=True,tablefmt=tblfmt))
+        print(tabulate(df[0:20],headers='keys',showindex=True,tablefmt=tblfmt))
         print(f'Number of rows returned = {len(df)}')
         #(rows,titles) = self.stdQuery(sql)
         #print(tabulate(rows,headers=titles,tablefmt=tblfmt))
@@ -818,13 +888,13 @@ class pmon:
             #print(f'{i}::{new} -- {rw["status"]}')
             if new != current:
                 if current != (0,0,0):
-                    print(f'{ntries}: (run,task,try) = {current}, states: {stateList}')
+                    if i < 100: print(f'{ntries}: (run,task,try) = {current}, states: {stateList}')
                     pass
                 stateList=[]
                 current=new
                 ntries += 1
                 pass
-            stateList.append(rw['status'])
+            stateList.append([rw['status'],rw['timestamp']])
             if i == len(df)-1:
                 print(f'{ntries}: (run,task,try) = {current}, states: {stateList}')
                 pass
@@ -882,6 +952,7 @@ class pmon:
             row = list(wrow)
             rows.append(row)
             pass
+        print(f'List of "monitored" runs for this workflow.')
         print(tabulate(rows,headers=self.wtitles, tablefmt=tblfmt))
         return
 
