@@ -669,6 +669,33 @@ class pmon:
 
         return
 
+
+    
+    def blockSummary(self,runnum=None,limit=None):
+        ## Summarize batch job usage
+        if self.debug>0:print(f'Entering blockSummary(runnum={runnum},limit={limit})')
+        if limit == 0:
+            print(f'Skipping blockSummary')
+            return
+        if limit != None and limit < 0: limit=None
+        # Fetch data from DB
+        msg='for all runs'
+        sql = 'select * from blockview '
+        if runnum!=None:
+            sql += f' where runnum={runnum}'
+            msg = f'for run {runnum}'
+            pass
+        sql += f' order by startJob '
+        if limit!=None:
+            sql += f' limit {limit} '
+            msg += f' (limit {limit})'
+            pass
+        (rows,titles) = self.stdQuery(sql)
+        # Pretty print
+        print(f'\nBlock summary table {msg}.  {len(rows)} blocks found.')
+        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
+        return
+
         
     
     def makePlots(self):
@@ -748,33 +775,6 @@ class pmon:
 
 
     
-    def blockSummary(self,runnum=None,limit=None):
-        ## Summarize batch job usage
-        if self.debug>0:print(f'Entering blockSummary(runnum={runnum},limit={limit})')
-        if limit == 0:
-            print(f'Skipping blockSummary')
-            return
-        if limit != None and limit < 0: limit=None
-        # Fetch data from DB
-        msg='for all runs'
-        sql = 'select * from blockview '
-        if runnum!=None:
-            sql += f' where runnum={runnum}'
-            msg = f'for run {runnum}'
-            pass
-        sql += f' order by startJob '
-        if limit!=None:
-            sql += f' limit {limit} '
-            msg += f' (limit {limit})'
-            pass
-        (rows,titles) = self.stdQuery(sql)
-        # Pretty print
-        print(f'\nBlock summary table {msg}.  {len(rows)} blocks found.')
-        print(tabulate(rows,headers=titles,tablefmt=tblfmt))
-        return
-
-
-    
     def numTasksRunningHistory(self,runnum):
         ## Time history of # of running jobs {<timeStamp>:<increment/decrement>}
         if self.debug>0:print(f'Entering numTasksRunningHistory')
@@ -784,35 +784,36 @@ class pmon:
 
         # Query monitoring.db twice, once for all "running" status
         # transitions, and again for "running_ended"
+
+        ## This query returns the 'timestamp' as a string, so convert
+        ## to a proper pandas Timestamp object and put the results
+        ## into a pandas "Series"
+
+        ## List should already be chronologically sorted
+        
         run_id = self.runnum2id[runnum]
         qON = f'''select timestamp 
                   from status
                   where (run_id="{run_id}" and task_status_name="running")
                   order by timestamp
                '''
-        #print(f'Query: {qON}')
-        ## This query returns the 'timestamp' as a string (not a 'date')
-        
-        dfON = pd.read_sql_query(qON,self.con)
-        print(f'Lines returned by query qON = {len(dfON)}')
+
+        ON = pd.to_datetime(pd.read_sql_query(qON,self.con)['timestamp'])
+        print(f'Lines returned by query qON = {len(ON)}')
 
         qOFF = f'''select timestamp 
                   from status
                   where (run_id="{run_id}" and task_status_name="running_ended")
                   order by timestamp
                '''
-        #print(f'Query: {qOFF}')
-        dfOFF = pd.read_sql_query(qOFF,self.con)
-        print(f'Lines returned by query qOFF = {len(dfOFF)}')
-        ## dfON
-        print(f'dfON:  {dfON[0:10]}')
-        print(f'dfOFF: {dfOFF[0:10]}')
+
+        OFF = pd.to_datetime(pd.read_sql_query(qOFF,self.con)['timestamp'])
+        print(f'Lines returned by query qOFF = {len(OFF)}')
+
+        print(f'ON:  \n{ON[0:10]}')
+        print(f'OFF: \n{OFF[0:10]}')
 
         
-        print(f'dfON.values[0] = {dfON.values[0]}')
-        print(f'dfON.values[0][0] = {dfON.values[0][0]}')
-        print(f'type(dfON.values[0][0]) = {type(dfON.values[0][0])}')
-
         
 
         #######################################################################
@@ -821,14 +822,9 @@ class pmon:
         code.interact(local=locals())
         #######################################################################
 
-        # Convert timestamps from strings into datetime (or pandas equiv) objects
-        # Use pd.to_datetime('datestring') to convert to a PANDAS datetime object
+        # Create a pair of time-indexed series
 
         
-        # Order the lists chronologically; determine the start
-        # (earliest) and stop (latest) times in the result set
-
-
         # Create an array of time bins to hold tallies, must decide on
         # bin size, initialize to all zeros
 
