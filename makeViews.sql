@@ -165,7 +165,7 @@ create temporary view if not exists summary as
    Batch information must be built-up starting with "PENDING" */
 create temporary view if not exists blockview as select
        rv.runnum,
-       b.block_id,
+       cast(b.block_id as INT) as blockID,
        b.job_id,
        b.executor_label as xtor,
        strftime('%Y-%m-%d %H:%M:%S',min(b.timestamp)) as submitted,

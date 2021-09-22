@@ -762,7 +762,7 @@ class pmon:
             sql += f' where runnum={runnum}'
             msg = f'for run {runnum}'
             pass
-        sql += f' order by startJob '
+        sql += f' order by startJob,runnum,blockID '
         if limit!=None:
             sql += f' limit {limit} '
             msg += f' (limit {limit})'
